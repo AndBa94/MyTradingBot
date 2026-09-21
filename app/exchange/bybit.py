@@ -1,34 +1,72 @@
+import asyncio
 import httpx
 from app.models import MarketSnapshot, Candle
 
 class BybitClient:
     def __init__(self, testnet=False):
         self.base = "https://api-testnet.bybit.com" if testnet else "https://api.bybit.com"
+        self.headers = {"User-Agent": "MyTradingBot/1.0"}
 
     async def get_tickers(self):
-        async with httpx.AsyncClient(timeout=httpx.Timeout(8.0, connect=3.0), headers={"User-Agent":"MyTradingBot/1.0"}) as c:
-            r = await c.get(f"{self.base}/v5/market/tickers",
-                             params={"category":"linear"})
-            r.raise_for_status()
-            rows = r.json()["result"]["list"]
-        out=[]
-        for x in rows:
+        last_error = None
+        for attempt in range(3):
             try:
-                last=float(x["lastPrice"]); bid=float(x["bid1Price"]); ask=float(x["ask1Price"])
-                if min(last,bid,ask)<=0: continue
-                out.append(MarketSnapshot(
-                    x["symbol"],last,bid,ask,float(x.get("turnover24h") or 0),
-                    float(x.get("price24hPcnt") or 0)*100,float(x.get("volume24h") or 0),
-                    float(x.get("fundingRate") or 0),float(x.get("openInterest") or 0),
-                    (ask-bid)/last*10000))
-            except (ValueError,TypeError,KeyError):
-                pass
-        return out
+                timeout = httpx.Timeout(20.0, connect=8.0)
+                async with httpx.AsyncClient(timeout=timeout, headers=self.headers) as c:
+                    r = await c.get(
+                        f"{self.base}/v5/market/tickers",
+                        params={"category": "linear"},
+                    )
+                    r.raise_for_status()
+                    data = r.json()
+                    if data.get("retCode", 0) != 0:
+                        raise RuntimeError(f"Bybit retCode={data.get('retCode')}: {data.get('retMsg')}")
+                    rows = data.get("result", {}).get("list", [])
+                    if not rows:
+                        raise RuntimeError("Bybit returned no linear market tickers")
 
-    async def get_klines(self,symbol,interval="5",limit=200):
-        async with httpx.AsyncClient(timeout=10) as c:
-            r=await c.get(f"{self.base}/v5/market/kline",
-                params={"category":"linear","symbol":symbol,"interval":interval,"limit":limit})
+                out = []
+                for x in rows:
+                    try:
+                        last = float(x["lastPrice"])
+                        bid = float(x["bid1Price"])
+                        ask = float(x["ask1Price"])
+                        if min(last, bid, ask) <= 0:
+                            continue
+                        out.append(MarketSnapshot(
+                            x["symbol"], last, bid, ask,
+                            float(x.get("turnover24h") or 0),
+                            float(x.get("price24hPcnt") or 0) * 100,
+                            float(x.get("volume24h") or 0),
+                            float(x.get("fundingRate") or 0),
+                            float(x.get("openInterest") or 0),
+                            (ask - bid) / last * 10000,
+                        ))
+                    except (ValueError, TypeError, KeyError):
+                        continue
+
+                if not out:
+                    raise RuntimeError("Bybit returned no valid ticker rows")
+                return out
+            except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError, RuntimeError) as exc:
+                last_error = exc
+                if attempt < 2:
+                    await asyncio.sleep(1.5 * (attempt + 1))
+                else:
+                    raise ConnectionError(f"Bybit market request failed after 3 attempts: {exc}") from exc
+
+        raise ConnectionError(f"Bybit market request failed: {last_error}")
+
+    async def get_klines(self, symbol, interval="5", limit=200):
+        timeout = httpx.Timeout(15.0, connect=8.0)
+        async with httpx.AsyncClient(timeout=timeout, headers=self.headers) as c:
+            r = await c.get(
+                f"{self.base}/v5/market/kline",
+                params={"category": "linear", "symbol": symbol, "interval": interval, "limit": limit},
+            )
             r.raise_for_status()
-            rows=sorted(r.json()["result"]["list"],key=lambda x:int(x[0]))
-        return [Candle(int(x[0]),float(x[1]),float(x[2]),float(x[3]),float(x[4]),float(x[5])) for x in rows]
+            data = r.json()
+            if data.get("retCode", 0) != 0:
+                raise RuntimeError(f"Bybit kline retCode={data.get('retCode')}: {data.get('retMsg')}")
+            rows = sorted(data.get("result", {}).get("list", []), key=lambda x: int(x[0]))
+        return [Candle(int(x[0]), float(x[1]), float(x[2]), float(x[3]), float(x[4]), float(x[5])) for x in rows]
