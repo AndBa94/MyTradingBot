@@ -25,7 +25,7 @@ def _tp_multipliers(count):
     return {
         1: [1.5],
         2: [1.1, 1.8],
-        3: [1.0, 1.6, 2.2],
+        3: [1.0, 1.8, 2.6],
         4: [1.0, 1.5, 2.0, 2.5],
         5: [0.9, 1.3, 1.7, 2.1, 2.6],
     }.get(max(1, min(5, int(count))), [1.0, 1.6, 2.2])
@@ -103,10 +103,11 @@ class SmartStrategy:
         if not tp:
             return None
 
-        # Conservative fee/slippage allowance for PAPER expectancy filtering.
-        estimated_round_trip_cost = max(0.0012, 2 * (m.spread_bps / 10000) + abs(m.funding_rate))
+        # Keep the pre-hardening entry filter: reject only when the expected
+        # move cannot cover roughly two times the current spread/funding cost.
         expected_move = abs(tp[-1] - entry) / entry
-        if expected_move <= estimated_round_trip_cost * 1.5:
+        costs = m.spread_bps / 10000 + abs(m.funding_rate)
+        if expected_move <= 2 * costs:
             return None
 
         reasons = [
