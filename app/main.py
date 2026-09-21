@@ -26,7 +26,12 @@ async def health():
 
 @app.get("/api/markets")
 async def markets():
-    return [x.__dict__ for x in sorted(await engine.client.get_tickers(),key=lambda x:x.turnover_24h,reverse=True)[:100]]
+    if not engine.latest_markets:
+        try:
+            engine.latest_markets = await engine.client.get_tickers()
+        except Exception:
+            return []
+    return [x.__dict__ for x in sorted(engine.latest_markets,key=lambda x:x.turnover_24h,reverse=True)[:100]]
 
 @app.get("/api/opportunities")
 async def opportunities():
