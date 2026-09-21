@@ -1,6 +1,6 @@
 import asyncio
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from app.exchange.bybit import BybitClient
 from app.models import Position
@@ -11,10 +11,10 @@ class Engine:
     def __init__(self, s, store):
         self.s = s
         self.store = store
-        self.client = BybitClient(s.bybit_testnet)
+        self.client = BybitClient(s.bybit_testnet, s.bybit_category)
         self.strategy = SmartStrategy()
         self.balance = float(s.default_budget)
-        self.positions = {}
+        self.positions = self.store.load_positions()
         self.last_scan = []
         self.latest_markets = []
         self.running = False
@@ -32,6 +32,7 @@ class Engine:
             "max_positions": int(saved.get("max_positions", s.max_simultaneous_positions)),
         }
         self.balance = float(saved.get("balance", self.settings["budget"]))
+        self.capital_base = float(saved.get("capital_base", self.settings["budget"]))
         self.trading_enabled = bool(saved.get("trading_enabled", False))
 
     async def scan_once(self):
@@ -69,7 +70,7 @@ class Engine:
             key=lambda x: x.confidence,
             reverse=True,
         )
-        self.last_scan_at = datetime.utcnow()
+        self.last_scan_at = datetime.now(timezone.utc).replace(tzinfo=None)
         return self.last_scan
 
     async def loop(self):
@@ -115,6 +116,8 @@ class Engine:
                 )
 
     def open_paper(self, o, automatic=False):
+        if str(self.s.environment).lower() != "paper":
+            return None
         if not self.trading_enabled:
             return None
         if len(self.positions) >= int(self.settings["max_positions"]):
@@ -130,6 +133,7 @@ class Engine:
             o.entry,
             o.stop_loss,
             leverage,
+            fee_rate=self.paper_fee_rate,
         )
         if q <= 0:
             return None
@@ -159,6 +163,7 @@ class Engine:
         self.balance -= entry_fee
         self.store.save_settings({"balance": self.balance})
         self.positions[p.id] = p
+        self.store.save_position(p)
         if automatic:
             self.last_action = f"AUTO OPEN {p.symbol} {p.side}"
         return p
@@ -180,9 +185,11 @@ class Engine:
         else:
             levels = [round(p.entry - risk * r, 10) for r in multipliers]
 
-        completed = min(p.tp_index, len(levels) - 1)
+        if p.tp_index >= count:
+            return
         p.take_profits = levels
-        p.tp_index = completed
+        p.tp_index = min(p.tp_index, len(levels) - 1)
+        self.store.save_position(p)
 
     def _sync_all_open_tps(self):
         for p in self.positions.values():
@@ -234,7 +241,7 @@ class Engine:
             return
 
         # Equal tranches. The final tranche closes the remainder.
-        qty_to_close = p.initial_quantity / len(p.take_profits)
+        qty_to_close = p.quantity / remaining_tps
         qty_to_close = min(qty_to_close, p.quantity)
         gross_realized = self._unrealized(p, price, qty_to_close)
         exit_fee = abs(price * qty_to_close) * self.paper_fee_rate
@@ -274,6 +281,7 @@ class Engine:
         self.balance += net_remaining
         self.store.save_settings({"balance": self.balance})
         del self.positions[p.id]
+        self.store.delete_position(p.id)
         self.last_action = (
             f"CLOSE {p.symbol} | {reason} | {final_pnl:+.2f} USDT | fee {p.fees:.4f}"
         )
@@ -315,17 +323,39 @@ class Engine:
         # Change the account baseline only when the budget itself changed.
         # Saving TP/leverage/max-position settings must not erase accumulated PnL.
         if self.settings["budget"] != old_budget:
-            self.balance += self.settings["budget"] - old_budget
+            delta = self.settings["budget"] - old_budget
+            self.balance += delta
+            self.capital_base += delta
         self._sync_all_open_tps()
-        self.store.save_settings({**self.settings, "balance": self.balance})
+        self.store.save_settings({**self.settings, "balance": self.balance, "capital_base": self.capital_base})
         return self.settings
 
     def account_snapshot(self):
-        history = self.store.history()
-        from datetime import datetime
-        today = datetime.utcnow().date()
+        today = datetime.now(timezone.utc).replace(tzinfo=None).date()
+        history = self.store.all_history()
         today_pnl = sum(float(x["pnl"]) for x in history if str(x["closed_at"])[:10] == today.isoformat())
-        return {"balance": self.balance, "initial_budget": self.settings["budget"], "today_pnl": today_pnl}
+        closed_pnl = sum(float(x["pnl"]) for x in history)
+        unrealized = sum(self._unrealized(p, p.last_price or p.entry) for p in self.positions.values())
+        return {
+            "balance": self.balance,
+            "initial_budget": self.capital_base,
+            "today_pnl": today_pnl,
+            "closed_pnl": closed_pnl,
+            "unrealized_pnl": unrealized,
+            "equity": self.balance + unrealized,
+        }
+
+    def reset_paper(self):
+        self.positions.clear()
+        self.store.clear_positions()
+        self.last_scan = []
+        self.cooldowns.clear()
+        self.balance = self.settings["budget"]
+        self.capital_base = self.settings["budget"]
+        self.trading_enabled = False
+        self.last_action = "PAPER сброшен"
+        self.store.reset()
+        self.store.save_settings({**self.settings, "balance": self.balance, "capital_base": self.capital_base, "trading_enabled": False})
 
     def set_trading(self, enabled):
         self.trading_enabled = bool(enabled)
