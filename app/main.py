@@ -1,6 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from app.config import settings
 from app.engine import Engine
@@ -78,7 +78,10 @@ async def get_settings():
 
 @app.post("/api/settings")
 async def set_settings(data: dict):
-    return engine.update_settings(data)
+    try:
+        return engine.update_settings(data)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 @app.post("/api/trading")
 async def set_trading(data: dict):
@@ -97,6 +100,7 @@ async def paper_open(index:int):
 
 @app.post("/api/positions/{position_id}/close")
 async def close_position(position_id:str):
+    await engine.refresh_positions()
     p=engine.close_paper(position_id)
     return {"ok":bool(p)}
 
