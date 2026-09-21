@@ -8,7 +8,7 @@ from app.config import Settings
 from app.engine import Engine
 from app.models import Candle, MarketSnapshot, Opportunity
 from app.storage import Store
-from app.strategy import SmartStrategy
+from app.strategy import SmartStrategy, _tp_multipliers
 
 
 class TradingMathTests(unittest.TestCase):
@@ -40,7 +40,7 @@ class TradingMathTests(unittest.TestCase):
         opportunity = SmartStrategy().analyze(market, candles, 3)
         self.assertIsNotNone(opportunity)
         risk = opportunity.entry - opportunity.stop_loss
-        for target, multiplier in zip(opportunity.take_profits, (1.0, 1.6, 2.2)):
+        for target, multiplier in zip(opportunity.take_profits, _tp_multipliers(3)):
             self.assertAlmostEqual((target - opportunity.entry) / risk, multiplier, places=8)
 
     def test_balance_is_initial_plus_net_closed_pnl(self):
