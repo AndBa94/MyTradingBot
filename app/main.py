@@ -22,14 +22,17 @@ async def home():
 
 @app.get("/health")
 async def health():
-    return {"status":"ok","mode":settings.environment,"running":engine.running,"trading_enabled":engine.trading_enabled,"opportunities":len(engine.last_scan)}
+    return {"status":"ok","mode":settings.environment,"running":engine.running,
+            "trading_enabled":engine.trading_enabled,"opportunities":len(engine.last_scan),
+            "markets":len(engine.latest_markets),"last_error":engine.last_error}
 
 @app.get("/api/markets")
 async def markets():
     if not engine.latest_markets:
         try:
             engine.latest_markets = await engine.client.get_tickers()
-        except Exception:
+        except Exception as exc:
+            engine.last_error = f"{type(exc).__name__}: {exc}"
             return []
     return [x.__dict__ for x in sorted(engine.latest_markets,key=lambda x:x.turnover_24h,reverse=True)[:100]]
 
