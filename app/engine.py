@@ -30,7 +30,7 @@ class Engine:
             "take_profits": int(saved.get("take_profits", 3)),
             "max_positions": int(saved.get("max_positions", s.max_simultaneous_positions)),
         }
-        self.balance = self.settings["budget"]
+        self.balance = float(saved.get("balance", self.settings["budget"]))
         self.trading_enabled = bool(saved.get("trading_enabled", False))
 
     async def scan_once(self):
@@ -122,7 +122,7 @@ class Engine:
             return None
 
         leverage = int(self.settings["leverage"])
-        self.balance = float(self.settings["budget"])
+        # Do not reset the live PAPER balance to the initial budget on every entry.
         q = position_size(
             self.balance,
             self.s.risk_per_trade,
@@ -222,6 +222,8 @@ class Engine:
         p.last_price = price
         p.status = "CLOSED"
         self.store.add_trade(p, price, final_pnl, reason)
+        self.balance += final_pnl
+        self.store.save_settings({"balance": self.balance})
         del self.positions[p.id]
         self.last_action = f"CLOSE {p.symbol} | {reason} | {final_pnl:+.2f} USDT"
 
@@ -258,9 +260,18 @@ class Engine:
         if "max_positions" in data:
             self.settings["max_positions"] = max(1, min(5, int(data["max_positions"])))
 
+        # Changing the configured budget also resets the PAPER account balance
+        # to that new starting amount when settings are changed.
         self.balance = self.settings["budget"]
-        self.store.save_settings(self.settings)
+        self.store.save_settings({**self.settings, "balance": self.balance})
         return self.settings
+
+    def account_snapshot(self):
+        history = self.store.history()
+        from datetime import datetime
+        today = datetime.utcnow().date()
+        today_pnl = sum(float(x["pnl"]) for x in history if str(x["closed_at"])[:10] == today.isoformat())
+        return {"balance": self.balance, "initial_budget": self.settings["budget"], "today_pnl": today_pnl}
 
     def set_trading(self, enabled):
         self.trading_enabled = bool(enabled)
