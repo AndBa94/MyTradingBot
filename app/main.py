@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from app.config import settings
@@ -7,19 +8,27 @@ from app.storage import Store
 from app.telegram_bot import telegram_polling
 from app.web import HTML
 
-app=FastAPI(title=settings.app_name,version="0.4.0")
-store=Store(settings.db_path)
-engine=Engine(settings,store)
+store = Store(settings.db_path)
+engine = Engine(settings, store)
 
-@app.on_event("startup")
-async def startup():
+@asynccontextmanager
+async def lifespan(app):
     try:
         engine.latest_markets = await engine.client.get_tickers()
         engine.last_error = None
     except Exception as exc:
         engine.last_error = f"{type(exc).__name__}: {exc}"
-    asyncio.create_task(engine.loop())
-    asyncio.create_task(telegram_polling())
+
+    tasks = [asyncio.create_task(engine.loop()), asyncio.create_task(telegram_polling())]
+    try:
+        yield
+    finally:
+        engine.running = False
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+app = FastAPI(title=settings.app_name, version="0.5.0", lifespan=lifespan)
 
 @app.get("/", response_class=HTMLResponse)
 async def home():
@@ -28,15 +37,10 @@ async def home():
 @app.get("/health")
 async def health():
     return {
-        "status":"ok",
-        "mode":settings.environment,
-        "running":engine.running,
-        "trading_enabled":engine.trading_enabled,
-        "opportunities":len(engine.last_scan),
-        "markets":len(engine.latest_markets),
-        "positions":len(engine.positions),
-        "last_error":engine.last_error,
-        "last_action":engine.last_action,
+        "status":"ok", "mode":settings.environment, "running":engine.running,
+        "trading_enabled":engine.trading_enabled, "opportunities":len(engine.last_scan),
+        "markets":len(engine.latest_markets), "positions":len(engine.positions),
+        "last_error":engine.last_error, "last_action":engine.last_action,
         **engine.account_snapshot(),
     }
 
@@ -64,6 +68,10 @@ async def positions():
 async def history():
     return store.history()
 
+@app.get("/api/stats")
+async def stats():
+    return store.statistics()
+
 @app.get("/api/settings")
 async def get_settings():
     return engine.settings
@@ -85,7 +93,7 @@ async def paper_open(index:int):
     if index<0 or index>=len(engine.last_scan):
         return {"error":"opportunity_not_found"}
     p=engine.open_paper(engine.last_scan[index], automatic=False)
-    return p.__dict__ if p else {"error":"position_limit_or_risk_or_duplicate"}
+    return p.__dict__ if p else {"error":"paper_mode_required_or_position_limit_or_risk_or_duplicate"}
 
 @app.post("/api/positions/{position_id}/close")
 async def close_position(position_id:str):
@@ -94,7 +102,5 @@ async def close_position(position_id:str):
 
 @app.post("/api/reset")
 async def reset():
-    engine.positions.clear()
-    engine.last_scan=[]
-    store.reset()
+    engine.reset_paper()
     return {"ok":True}
