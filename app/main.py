@@ -22,7 +22,7 @@ async def home():
 
 @app.get("/health")
 async def health():
-    return {"status":"ok","mode":settings.environment,"running":engine.running,"opportunities":len(engine.last_scan)}
+    return {"status":"ok","mode":settings.environment,"running":engine.running,"trading_enabled":engine.trading_enabled,"opportunities":len(engine.last_scan)}
 
 @app.get("/api/markets")
 async def markets():
@@ -48,6 +48,10 @@ async def get_settings():
 @app.post("/api/settings")
 async def set_settings(data: dict):
     return engine.update_settings(data)
+
+@app.post("/api/trading")
+async def set_trading(data: dict):
+    return {"trading_enabled": engine.set_trading(data.get("enabled", False))}
 
 @app.post("/api/scan")
 async def scan():
