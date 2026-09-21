@@ -54,3 +54,5 @@ class Position:
     tp_index: int = 0
     last_price: float = 0.0
     initial_stop_loss: float = 0.0
+    entry_fee: float = 0.0
+    fees: float = 0.0
