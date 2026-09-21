@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     default_leverage: int = 3
     default_budget: float = 100.0
     risk_per_trade: float = 0.005
+    paper_taker_fee_rate: float = 0.00055
     auto_min_confidence: float = 0.62
     auto_cooldown_seconds: int = 90
     max_hold_minutes: int = 30
