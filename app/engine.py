@@ -37,6 +37,14 @@ class Engine:
         self.capital_base = float(saved.get("capital_base", self.settings["budget"]))
         self.trading_enabled = bool(saved.get("trading_enabled", False))
 
+    def _persist_balance(self):
+        self.settings["budget"] = float(self.balance)
+        self.store.save_settings({
+            "budget": self.balance,
+            "balance": self.balance,
+            "capital_base": self.capital_base,
+        })
+
     async def scan_once(self):
         try:
             markets = await self.client.get_tickers()
@@ -176,7 +184,7 @@ class Engine:
             realized_pnl=-entry_fee,
         )
         self.balance -= entry_fee
-        self.store.save_settings({"balance": self.balance})
+        self._persist_balance()
         self.positions[p.id] = p
         self.store.save_position(p)
         if automatic:
