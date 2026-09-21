@@ -56,6 +56,22 @@ class TradingMathTests(unittest.TestCase):
         finally:
             tmp.cleanup()
 
+    def test_multiple_positions_respect_total_margin(self):
+        tmp, store, engine = self.make_engine()
+        try:
+            engine.settings["leverage"] = 3
+            first = engine.open_paper(self.opportunity())
+            second = engine.open_paper(
+                Opportunity("ETHUSDT", "LONG", "TREND", "TEST", 0.9, 0.03, 100.0, 99.0, [101.0, 102.0, 103.0], [])
+            )
+            used_margin = sum(
+                abs(p.entry * p.quantity) / p.leverage
+                for p in engine.positions.values()
+            )
+            self.assertLessEqual(used_margin, engine.balance + first.entry_fee + second.entry_fee + 1e-9)
+        finally:
+            tmp.cleanup()
+
     def test_open_pnl_is_net(self):
         tmp, store, engine = self.make_engine()
         try:
