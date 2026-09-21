@@ -11,6 +11,8 @@ class Engine:
     def __init__(self, s, store):
         self.s = s
         self.store = store
+        if str(s.environment).lower() != "paper":
+            raise RuntimeError("MyTradingBot currently supports PAPER mode only")
         self.client = BybitClient(s.bybit_testnet, s.bybit_category)
         self.strategy = SmartStrategy()
         self.balance = float(s.default_budget)
@@ -185,10 +187,16 @@ class Engine:
         else:
             levels = [round(p.entry - risk * r, 10) for r in multipliers]
 
-        if p.tp_index >= count:
-            return
-        p.take_profits = levels
-        p.tp_index = min(p.tp_index, len(levels) - 1)
+        completed = max(0, int(p.tp_index))
+        if completed >= len(levels):
+            # The new TP configuration has fewer stages than already completed.
+            # Do not move a target backwards. Close the remainder at the latest
+            # known market price on the next management cycle.
+            p.take_profits = [round(p.last_price or p.entry, 10)]
+            p.tp_index = 0
+        else:
+            p.take_profits = levels
+            p.tp_index = completed
         self.store.save_position(p)
 
     def _sync_all_open_tps(self):
@@ -199,6 +207,10 @@ class Engine:
     def _unrealized(self, p, price, quantity=None):
         q = p.quantity if quantity is None else quantity
         return (price - p.entry) * q if p.side == "LONG" else (p.entry - price) * q
+
+    def _net_unrealized(self, p, price, quantity=None):
+        q = p.quantity if quantity is None else quantity
+        return self._unrealized(p, price, q) - abs(price * q) * self.paper_fee_rate
 
     async def manage_positions(self):
         if not self.positions or not self.latest_markets:
@@ -215,7 +227,7 @@ class Engine:
 
             price = m.bid if p.side == "LONG" else m.ask
             p.last_price = price
-            p.pnl = self._unrealized(p, price)
+            p.pnl = p.realized_pnl + self._net_unrealized(p, price)
 
             hit_sl = price <= p.stop_loss if p.side == "LONG" else price >= p.stop_loss
             if hit_sl:
@@ -233,6 +245,9 @@ class Engine:
             age = datetime.utcnow() - p.opened_at
             if age >= timedelta(minutes=self.s.max_hold_minutes):
                 self._finish_position(p, price, "TIME_EXIT")
+                continue
+
+            self.store.save_position(p)
 
     def _take_profit(self, p, price):
         remaining_tps = len(p.take_profits) - p.tp_index
@@ -252,7 +267,7 @@ class Engine:
         self.balance += realized
         self.store.save_settings({"balance": self.balance})
         p.tp_index += 1
-        p.pnl = self._unrealized(p, price)
+        p.pnl = p.realized_pnl + self._net_unrealized(p, price)
 
         # Once TP1 is reached, protect the remaining position at breakeven.
         if p.tp_index == 1:
@@ -261,6 +276,7 @@ class Engine:
             prev_tp = p.take_profits[p.tp_index - 1]
             p.stop_loss = prev_tp
 
+        self.store.save_position(p)
         self.last_action = (
             f"TP{p.tp_index} {p.symbol} | {realized:+.2f} USDT net | fee {exit_fee:.4f}"
         )
@@ -324,7 +340,11 @@ class Engine:
         # Saving TP/leverage/max-position settings must not erase accumulated PnL.
         if self.settings["budget"] != old_budget:
             delta = self.settings["budget"] - old_budget
-            self.balance += delta
+            new_balance = self.balance + delta
+            if new_balance < 0:
+                self.settings["budget"] = old_budget
+                raise ValueError("budget withdrawal exceeds available PAPER balance")
+            self.balance = new_balance
             self.capital_base += delta
         self._sync_all_open_tps()
         self.store.save_settings({**self.settings, "balance": self.balance, "capital_base": self.capital_base})
@@ -335,7 +355,10 @@ class Engine:
         history = self.store.all_history()
         today_pnl = sum(float(x["pnl"]) for x in history if str(x["closed_at"])[:10] == today.isoformat())
         closed_pnl = sum(float(x["pnl"]) for x in history)
-        unrealized = sum(self._unrealized(p, p.last_price or p.entry) for p in self.positions.values())
+        unrealized = sum(
+            p.realized_pnl + self._net_unrealized(p, p.last_price or p.entry)
+            for p in self.positions.values()
+        )
         return {
             "balance": self.balance,
             "initial_budget": self.capital_base,
