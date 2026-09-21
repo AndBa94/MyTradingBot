@@ -37,6 +37,7 @@ async def health():
         "positions":len(engine.positions),
         "last_error":engine.last_error,
         "last_action":engine.last_action,
+        **engine.account_snapshot(),
     }
 
 @app.get("/api/markets")
