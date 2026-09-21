@@ -49,3 +49,7 @@ class Position:
     leverage: int
     pnl: float = 0.0
     status: str = "OPEN"
+    initial_quantity: float = 0.0
+    realized_pnl: float = 0.0
+    tp_index: int = 0
+    last_price: float = 0.0
