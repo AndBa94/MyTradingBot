@@ -137,6 +137,18 @@ class Engine:
             leverage,
             fee_rate=self.paper_fee_rate,
         )
+
+        # Do not allow several positions to each consume the full leverage
+        # cap against the same cash balance. Reserve isolated-style margin for
+        # already open PAPER positions before opening another one.
+        used_margin = sum(
+            abs(p.entry * p.quantity) / max(1, p.leverage)
+            for p in self.positions.values()
+            if p.status == "OPEN"
+        )
+        available_margin = max(0.0, self.balance - used_margin)
+        margin_cap_qty = available_margin * leverage / o.entry
+        q = min(q, margin_cap_qty)
         if q <= 0:
             return None
 
@@ -155,6 +167,7 @@ class Engine:
             tps,
             datetime.utcnow(),
             leverage,
+            pnl=-entry_fee,
             initial_quantity=q,
             last_price=o.entry,
             initial_stop_loss=o.stop_loss,
