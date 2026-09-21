@@ -6,7 +6,7 @@ class BybitClient:
         self.base = "https://api-testnet.bybit.com" if testnet else "https://api.bybit.com"
 
     async def get_tickers(self):
-        async with httpx.AsyncClient(timeout=10) as c:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(8.0, connect=3.0), headers={"User-Agent":"MyTradingBot/1.0"}) as c:
             r = await c.get(f"{self.base}/v5/market/tickers",
                              params={"category":"linear"})
             r.raise_for_status()
