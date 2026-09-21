@@ -91,40 +91,14 @@ class SmartStrategy:
         if risk <= 0 or risk / entry > .02:
             return None
 
-        # Dynamic targets: risk (R), ATR and nearby market structure all
-        # influence the final target distance. We never use a fixed percent.
+        # Targets are exact R-multiples of the original entry-to-SL risk.
+        # ATR must not silently turn a 1R scalping target into 4-5R.
         multipliers = _tp_multipliers(tp_count)
-        recent_high = max(c.high for c in candles[-60:-1])
-        recent_low = min(c.low for c in candles[-60:-1])
-
         if side == "LONG":
-            structure_room = max(recent_high - entry, a)
-            tp = []
-            for r_mult in multipliers:
-                target_r = r_mult
-                if setup == "BREAKOUT" and target_r >= 1.0:
-                    level_r = (recent_high - entry) / risk
-                    if 1.0 <= level_r <= target_r:
-                        target_r = level_r
-                target = entry + risk * min(target_r, 2.6)
-                target = max(target, entry + a * min(r_mult, 2.6))
-                target = min(target, entry + risk * 2.6)
-                tp.append(target)
-            tp = sorted(set(round(x, 10) for x in tp))
+            tp = [round(entry + risk * r_mult, 10) for r_mult in multipliers]
         else:
-            structure_room = max(entry - recent_low, a)
-            tp = []
-            for r_mult in multipliers:
-                target_r = r_mult
-                if setup == "BREAKOUT" and target_r >= 1.0:
-                    level_r = (entry - recent_low) / risk
-                    if 1.0 <= level_r <= target_r:
-                        target_r = level_r
-                target = entry - risk * min(target_r, 2.6)
-                target = min(target, entry - a * min(r_mult, 2.6))
-                target = max(target, entry - risk * 2.6)
-                tp.append(target)
-            tp = sorted(set((round(x, 10) for x in tp), reverse=True))
+            tp = [round(entry - risk * r_mult, 10) for r_mult in multipliers]
+        tp = sorted(set(tp), reverse=(side == "SHORT"))
 
         if not tp:
             return None
