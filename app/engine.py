@@ -15,6 +15,7 @@ class Engine:
         self.balance = 1000.0
         self.positions = {}
         self.last_scan = []
+        self.latest_markets = []
         self.running = False
         self.trading_enabled = False
         self.last_scan_at = None
@@ -27,13 +28,14 @@ class Engine:
 
     async def scan_once(self):
         markets = await self.client.get_tickers()
+        self.latest_markets = markets
         markets = [
             m for m in markets
             if m.turnover_24h >= self.s.min_24h_turnover_usdt
             and m.spread_bps <= self.s.max_spread_bps
             and m.bid > 0 and m.ask > 0
         ]
-        markets = sorted(markets, key=lambda x: x.turnover_24h, reverse=True)[:60]
+        markets = sorted(markets, key=lambda x: x.turnover_24h, reverse=True)[:30]
         sem = asyncio.Semaphore(10)
 
         async def analyze_market(m):
@@ -56,7 +58,7 @@ class Engine:
                 await self.scan_once()
             except Exception:
                 pass
-            await asyncio.sleep(self.s.scan_interval_seconds)
+            await asyncio.sleep(max(10, self.s.scan_interval_seconds))
 
     def open_paper(self, o):
         if not self.trading_enabled:
