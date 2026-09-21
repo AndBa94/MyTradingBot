@@ -19,6 +19,7 @@ class Engine:
         self.running = False
         self.trading_enabled = False
         self.last_scan_at = None
+        self.last_error = None
         self.settings = {
             "budget": self.balance,
             "leverage": s.default_leverage,
@@ -27,8 +28,14 @@ class Engine:
         }
 
     async def scan_once(self):
-        markets = await self.client.get_tickers()
-        self.latest_markets = markets
+        try:
+            markets = await self.client.get_tickers()
+            self.latest_markets = markets
+            self.last_error = None
+        except Exception as exc:
+            self.last_error = f"{type(exc).__name__}: {exc}"
+            raise
+
         markets = [
             m for m in markets
             if m.turnover_24h >= self.s.min_24h_turnover_usdt
@@ -43,7 +50,8 @@ class Engine:
                 try:
                     candles = await self.client.get_klines(m.symbol)
                     return self.strategy.analyze(m, candles)
-                except Exception:
+                except Exception as exc:
+                    self.last_error = f"{type(exc).__name__}: {exc}"
                     return None
 
         results = await asyncio.gather(*(analyze_market(m) for m in markets))
@@ -71,10 +79,7 @@ class Engine:
         if q <= 0:
             return None
         tps = o.take_profits[:int(self.settings["take_profits"])]
-        p = Position(
-            str(uuid.uuid4()), o.symbol, o.side, o.entry, q, o.stop_loss,
-            tps, datetime.utcnow(), leverage
-        )
+        p = Position(str(uuid.uuid4()), o.symbol, o.side, o.entry, q, o.stop_loss, tps, datetime.utcnow(), leverage)
         self.positions[p.id] = p
         return p
 
@@ -88,8 +93,8 @@ class Engine:
                 if not m:
                     continue
                 p.pnl = (m.last - p.entry) * p.quantity if p.side == "LONG" else (p.entry - m.last) * p.quantity
-        except Exception:
-            pass
+        except Exception as exc:
+            self.last_error = f"{type(exc).__name__}: {exc}"
 
     def close_paper(self, position_id, reason="MANUAL"):
         p = self.positions.pop(position_id, None)
