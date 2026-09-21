@@ -7,7 +7,7 @@ from app.storage import Store
 from app.telegram_bot import telegram_polling
 from app.web import HTML
 
-app=FastAPI(title=settings.app_name,version="0.3.0")
+app=FastAPI(title=settings.app_name,version="0.4.0")
 store=Store(settings.db_path)
 engine=Engine(settings,store)
 
@@ -27,9 +27,17 @@ async def home():
 
 @app.get("/health")
 async def health():
-    return {"status":"ok","mode":settings.environment,"running":engine.running,
-            "trading_enabled":engine.trading_enabled,"opportunities":len(engine.last_scan),
-            "markets":len(engine.latest_markets),"last_error":engine.last_error}
+    return {
+        "status":"ok",
+        "mode":settings.environment,
+        "running":engine.running,
+        "trading_enabled":engine.trading_enabled,
+        "opportunities":len(engine.last_scan),
+        "markets":len(engine.latest_markets),
+        "positions":len(engine.positions),
+        "last_error":engine.last_error,
+        "last_action":engine.last_action,
+    }
 
 @app.get("/api/markets")
 async def markets():
@@ -39,7 +47,7 @@ async def markets():
             engine.last_error = None
         except Exception as exc:
             engine.last_error = f"{type(exc).__name__}: {exc}"
-            return []
+            return {"ok":False,"error":engine.last_error,"markets":[]}
     return [x.__dict__ for x in sorted(engine.latest_markets,key=lambda x:x.turnover_24h,reverse=True)[:100]]
 
 @app.get("/api/opportunities")
@@ -75,8 +83,8 @@ async def scan():
 async def paper_open(index:int):
     if index<0 or index>=len(engine.last_scan):
         return {"error":"opportunity_not_found"}
-    p=engine.open_paper(engine.last_scan[index])
-    return p.__dict__ if p else {"error":"position_limit_or_risk"}
+    p=engine.open_paper(engine.last_scan[index], automatic=False)
+    return p.__dict__ if p else {"error":"position_limit_or_risk_or_duplicate"}
 
 @app.post("/api/positions/{position_id}/close")
 async def close_position(position_id:str):
