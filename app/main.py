@@ -13,6 +13,11 @@ engine=Engine(settings,store)
 
 @app.on_event("startup")
 async def startup():
+    try:
+        engine.latest_markets = await engine.client.get_tickers()
+        engine.last_error = None
+    except Exception as exc:
+        engine.last_error = f"{type(exc).__name__}: {exc}"
     asyncio.create_task(engine.loop())
     asyncio.create_task(telegram_polling())
 
@@ -31,6 +36,7 @@ async def markets():
     if not engine.latest_markets:
         try:
             engine.latest_markets = await engine.client.get_tickers()
+            engine.last_error = None
         except Exception as exc:
             engine.last_error = f"{type(exc).__name__}: {exc}"
             return []
