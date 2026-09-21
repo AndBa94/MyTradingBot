@@ -23,12 +23,12 @@ def _tp_multipliers(count):
     # A single TP is deliberately farther away; multiple TPs spread
     # the exits while keeping the average target meaningfully above 1R.
     return {
-        1: [2.6],
-        2: [1.8, 3.4],
-        3: [1.5, 2.5, 3.5],
-        4: [1.5, 2.2, 2.9, 3.6],
-        5: [1.4, 2.1, 2.8, 3.5, 4.2],
-    }.get(max(1, min(5, int(count))), [1.5, 2.5, 3.5])
+        1: [1.5],
+        2: [1.1, 1.8],
+        3: [1.0, 1.6, 2.2],
+        4: [1.0, 1.5, 2.0, 2.5],
+        5: [0.9, 1.3, 1.7, 2.1, 2.6],
+    }.get(max(1, min(5, int(count))), [1.0, 1.6, 2.2])
 
 class SmartStrategy:
     def analyze(self, m, candles, tp_count=3):
@@ -106,8 +106,10 @@ class SmartStrategy:
                 # Do not force an arbitrary ceiling; if structure gives room,
                 # allow the target to extend with the move.
                 if setup == "BREAKOUT" and target < recent_high:
-                    target = max(target, recent_high)
-                target = max(target, entry + a * min(r_mult, 4.2))
+                    level_r = (recent_high - entry) / risk
+                    if 1.0 <= level_r <= 2.6:
+                        target = max(target, recent_high)
+                target = max(target, entry + a * min(r_mult, 2.6))
                 tp.append(target)
             tp = sorted(set(round(x, 10) for x in tp))
         else:
@@ -117,8 +119,10 @@ class SmartStrategy:
             for r_mult in multipliers:
                 target = entry - risk * r_mult
                 if setup == "BREAKOUT" and target > recent_low:
-                    target = min(target, recent_low)
-                target = min(target, entry - a * min(r_mult, 4.2))
+                    level_r = (entry - recent_low) / risk
+                    if 1.0 <= level_r <= 2.6:
+                        target = min(target, recent_low)
+                target = min(target, entry - a * min(r_mult, 2.6))
                 tp.append(target)
             tp = sorted(set((round(x, 10) for x in tp), reverse=True))
 
