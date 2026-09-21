@@ -99,30 +99,30 @@ class SmartStrategy:
 
         if side == "LONG":
             structure_room = max(recent_high - entry, a)
-            max_reasonable = max(structure_room, 2.5 * risk)
             tp = []
             for r_mult in multipliers:
-                target = entry + risk * r_mult
-                # Do not force an arbitrary ceiling; if structure gives room,
-                # allow the target to extend with the move.
-                if setup == "BREAKOUT" and target < recent_high:
+                target_r = r_mult
+                if setup == "BREAKOUT" and target_r >= 1.0:
                     level_r = (recent_high - entry) / risk
-                    if 1.0 <= level_r <= 2.6:
-                        target = max(target, recent_high)
+                    if 1.0 <= level_r <= target_r:
+                        target_r = level_r
+                target = entry + risk * min(target_r, 2.6)
                 target = max(target, entry + a * min(r_mult, 2.6))
+                target = min(target, entry + risk * 2.6)
                 tp.append(target)
             tp = sorted(set(round(x, 10) for x in tp))
         else:
             structure_room = max(entry - recent_low, a)
-            max_reasonable = max(structure_room, 2.5 * risk)
             tp = []
             for r_mult in multipliers:
-                target = entry - risk * r_mult
-                if setup == "BREAKOUT" and target > recent_low:
+                target_r = r_mult
+                if setup == "BREAKOUT" and target_r >= 1.0:
                     level_r = (entry - recent_low) / risk
-                    if 1.0 <= level_r <= 2.6:
-                        target = min(target, recent_low)
+                    if 1.0 <= level_r <= target_r:
+                        target_r = level_r
+                target = entry - risk * min(target_r, 2.6)
                 target = min(target, entry - a * min(r_mult, 2.6))
+                target = max(target, entry - risk * 2.6)
                 tp.append(target)
             tp = sorted(set((round(x, 10) for x in tp), reverse=True))
 
