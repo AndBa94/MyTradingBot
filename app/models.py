@@ -53,3 +53,4 @@ class Position:
     realized_pnl: float = 0.0
     tp_index: int = 0
     last_price: float = 0.0
+    initial_stop_loss: float = 0.0
