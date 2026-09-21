@@ -3,8 +3,9 @@ import httpx
 from app.models import MarketSnapshot, Candle
 
 class BybitClient:
-    def __init__(self, testnet=False):
+    def __init__(self, testnet=False, category="linear"):
         self.base = "https://api-testnet.bybit.com" if testnet else "https://api.bybit.com"
+        self.category = category
         self.headers = {"User-Agent": "MyTradingBot/1.0"}
 
     async def get_tickers(self):
@@ -15,7 +16,7 @@ class BybitClient:
                 async with httpx.AsyncClient(timeout=timeout, headers=self.headers) as c:
                     r = await c.get(
                         f"{self.base}/v5/market/tickers",
-                        params={"category": "linear"},
+                        params={"category": self.category},
                     )
                     r.raise_for_status()
                     data = r.json()
@@ -58,15 +59,35 @@ class BybitClient:
         raise ConnectionError(f"Bybit market request failed: {last_error}")
 
     async def get_klines(self, symbol, interval="5", limit=200):
-        timeout = httpx.Timeout(15.0, connect=8.0)
-        async with httpx.AsyncClient(timeout=timeout, headers=self.headers) as c:
-            r = await c.get(
-                f"{self.base}/v5/market/kline",
-                params={"category": "linear", "symbol": symbol, "interval": interval, "limit": limit},
-            )
-            r.raise_for_status()
-            data = r.json()
-            if data.get("retCode", 0) != 0:
-                raise RuntimeError(f"Bybit kline retCode={data.get('retCode')}: {data.get('retMsg')}")
-            rows = sorted(data.get("result", {}).get("list", []), key=lambda x: int(x[0]))
-        return [Candle(int(x[0]), float(x[1]), float(x[2]), float(x[3]), float(x[4]), float(x[5])) for x in rows]
+        last_error = None
+        for attempt in range(3):
+            try:
+                timeout = httpx.Timeout(15.0, connect=8.0)
+                async with httpx.AsyncClient(timeout=timeout, headers=self.headers) as c:
+                    r = await c.get(
+                        f"{self.base}/v5/market/kline",
+                        params={"category": self.category, "symbol": symbol, "interval": interval, "limit": limit},
+                    )
+                    r.raise_for_status()
+                    data = r.json()
+                    if data.get("retCode", 0) != 0:
+                        raise RuntimeError(f"Bybit kline retCode={data.get('retCode')}: {data.get('retMsg')}")
+                    rows = data.get("result", {}).get("list", [])
+                    if not rows:
+                        raise RuntimeError(f"Bybit returned no kline data for {symbol}")
+                    rows = sorted(rows, key=lambda x: int(x[0]))
+                    out = []
+                    for x in rows:
+                        if len(x) < 6:
+                            continue
+                        out.append(Candle(int(x[0]), float(x[1]), float(x[2]), float(x[3]), float(x[4]), float(x[5])))
+                    if len(out) < 60:
+                        raise RuntimeError(f"Bybit returned insufficient kline data for {symbol}: {len(out)}")
+                    return out
+            except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError, RuntimeError, ValueError, TypeError, KeyError) as exc:
+                last_error = exc
+                if attempt < 2:
+                    await asyncio.sleep(1.0 * (attempt + 1))
+                else:
+                    raise ConnectionError(f"Bybit kline request failed after 3 attempts for {symbol}: {exc}") from exc
+        raise ConnectionError(f"Bybit kline request failed for {symbol}: {last_error}")
