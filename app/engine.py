@@ -55,7 +55,9 @@ class Engine:
             async with sem:
                 try:
                     candles = await self.client.get_klines(m.symbol)
-                    return self.strategy.analyze(m, candles)
+                    return self.strategy.analyze(
+                        m, candles, int(self.settings["take_profits"])
+                    )
                 except Exception as exc:
                     self.last_error = f"{type(exc).__name__}: {exc}"
                     return None
@@ -131,6 +133,7 @@ class Engine:
         if q <= 0:
             return None
 
+        # Strategy already generated the requested number of dynamic TP levels.
         tps = o.take_profits[:int(self.settings["take_profits"])]
         p = Position(
             str(uuid.uuid4()),
