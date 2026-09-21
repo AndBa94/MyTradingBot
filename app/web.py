@@ -18,7 +18,7 @@ h1{font-size:28px;margin:0}.sub{font-size:12px;color:var(--muted);margin-top:3px
 .op{padding:14px 0;border-top:1px solid var(--line)}.op:first-child{border-top:0}
 .row{display:flex;justify-content:space-between;gap:12px;align-items:center}.symbol{font-weight:750}.side{font-weight:800}.long{color:var(--green)}.short{color:var(--red)}
 .meta{display:flex;gap:10px;color:var(--muted);font-size:11px;margin-top:7px;flex-wrap:wrap}
-.btn{border:0;border-radius:12px;padding:11px 14px;background:var(--blue);color:#fff;font-size:14px;font-weight:650}.btn.secondary{background:#1d2732}.btn.danger{background:#2b1720;color:#ff7185}
+.btn{border:0;border-radius:12px;padding:11px 14px;background:var(--blue);color:#fff;font-size:14px;font-weight:650}.btn.secondary{background:#1d2732}.btn.danger{background:#2b1720;color:#ff7185}.trade{display:flex;justify-content:space-between;align-items:center;gap:12px}.tradeBtn{min-width:150px;border:0;border-radius:13px;padding:13px 15px;color:#fff;font-size:14px;font-weight:750}.tradeOn{background:#158a49}.tradeOff{background:#26313d}
 .nav{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:min(720px,100%);padding:9px 8px calc(9px + env(safe-area-inset-bottom));background:#0d1218ee;backdrop-filter:blur(18px);border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(5,1fr);z-index:10}
 .nav button{background:none;border:0;color:var(--muted);font-size:10px;padding:7px 2px}.nav button.active{color:#fff}.ico{display:block;font-size:19px;margin-bottom:2px}
 .page{display:none}.page.active{display:block}
@@ -34,6 +34,7 @@ input,select{width:100%;background:#0d131a;color:#fff;border:1px solid #293541;b
 <section id="home" class="page active">
 <div class="hero"><div class="card"><div class="label">Баланс</div><div class="metric" id="balance">$1,000</div></div><div class="card"><div class="label">Сегодня PnL</div><div class="metric" id="pnl">$0.00</div></div></div>
 <div class="card"><div class="row"><div><div class="label">Двигатель</div><div class="metric" id="engine">Запуск…</div></div><div class="badge" id="scan">SCAN</div></div></div>
+<div class="card trade"><div><div class="label">Торговля</div><div class="tiny" id="tradeHint">Сканирование работает независимо</div></div><button id="tradeBtn" class="tradeBtn tradeOff" onclick="toggleTrading()">▶ Запустить</button></div>
 <div class="section"><h2>Возможности</h2><span class="badge" id="oppCount">0</span></div>
 <div class="card" id="opps"><div class="empty">Ищу рынок…</div></div>
 </section>
@@ -74,6 +75,9 @@ async function loadHome(){
   $('balance').textContent='$'+fmt(s.budget,2);
   window.maxPos=s.max_positions;
   $('engine').textContent=h.running?'ONLINE':'OFFLINE';
+  $('tradeBtn').textContent=h.trading_enabled?'■ Остановить':'▶ Запустить';
+  $('tradeBtn').className='tradeBtn '+(h.trading_enabled?'tradeOn':'tradeOff');
+  $('tradeHint').textContent=h.trading_enabled?'Торговля разрешена (PAPER)':'Сигналы ищутся, входы отключены';
   $('mode').textContent=(h.mode||'paper').toUpperCase()+' MODE';
   $('oppCount').textContent=o.length;
   $('posCount').textContent=p.length+' / '+(window.maxPos||3);
@@ -81,6 +85,11 @@ async function loadHome(){
   $('opps').innerHTML=o.length?o.slice(0,8).map((x,i)=>{
     return '<div class="op"><div class="row"><div><span class="symbol">'+x.symbol+'</span> <span class="side '+x.side.toLowerCase()+'">'+x.side+'</span></div><button class="btn" onclick="openPos('+i+')">Войти</button></div><div class="meta"><span>'+x.regime+'</span><span>'+x.setup+'</span><span>conf '+(x.confidence*100).toFixed(0)+'%</span><span>move '+(x.expected_move*100).toFixed(2)+'%</span></div><div class="meta"><span>Entry '+fmt(x.entry,6)+'</span><span>SL '+fmt(x.stop_loss,6)+'</span><span>TP1 '+fmt(x.take_profits[0],6)+'</span></div></div>';
   }).join(''):'<div class="empty">Подходящих входов сейчас нет.<br>Двигатель продолжает сканирование.</div>';
+}
+async function toggleTrading(){
+  const h=await api('/health');
+  const r=await api('/api/trading',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:!h.trading_enabled})});
+  await loadHome();
 }
 async function openPos(i){
   const r=await api('/api/paper/open/'+i,{method:'POST'});
