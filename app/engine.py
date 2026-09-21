@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 
 from app.exchange.bybit import BybitClient
 from app.models import Position
-from app.strategy import SmartStrategy
+from app.strategy import SmartStrategy, _tp_multipliers
 from app.risk import position_size
 
 class Engine:
@@ -147,11 +147,38 @@ class Engine:
             leverage,
             initial_quantity=q,
             last_price=o.entry,
+            initial_stop_loss=o.stop_loss,
         )
         self.positions[p.id] = p
         if automatic:
             self.last_action = f"AUTO OPEN {p.symbol} {p.side}"
         return p
+
+    def _sync_position_tps(self, p):
+        """Rebuild TP levels for an open position using the current TP setting.
+        Entry and the original risk/SL are preserved; already completed TP stages
+        are never moved backwards.
+        """
+        count = max(1, min(5, int(self.settings["take_profits"])))
+        original_sl = p.initial_stop_loss or p.stop_loss
+        risk = abs(p.entry - original_sl)
+        if risk <= 0:
+            return
+
+        multipliers = _tp_multipliers(count)
+        if p.side == "LONG":
+            levels = [round(p.entry + risk * r, 10) for r in multipliers]
+        else:
+            levels = [round(p.entry - risk * r, 10) for r in multipliers]
+
+        completed = min(p.tp_index, len(levels) - 1)
+        p.take_profits = levels
+        p.tp_index = completed
+
+    def _sync_all_open_tps(self):
+        for p in self.positions.values():
+            if p.status == "OPEN":
+                self._sync_position_tps(p)
 
     def _unrealized(self, p, price, quantity=None):
         q = p.quantity if quantity is None else quantity
@@ -160,6 +187,9 @@ class Engine:
     async def manage_positions(self):
         if not self.positions or not self.latest_markets:
             return
+
+        # Keep open positions aligned with the current TP setting.
+        self._sync_all_open_tps()
 
         tickers = {m.symbol: m for m in self.latest_markets}
         for p in list(self.positions.values()):
@@ -263,6 +293,7 @@ class Engine:
         # Changing the configured budget also resets the PAPER account balance
         # to that new starting amount when settings are changed.
         self.balance = self.settings["budget"]
+        self._sync_all_open_tps()
         self.store.save_settings({**self.settings, "balance": self.balance})
         return self.settings
 
