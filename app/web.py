@@ -67,7 +67,7 @@ input,select{width:100%;background:#0d131a;color:#fff;border:1px solid #293541;b
 <script>
 const tg=window.Telegram?.WebApp;if(tg){tg.ready();tg.expand();}
 const $=id=>document.getElementById(id);
-async function api(url,opt){const r=await fetch(url,opt);return r.json();}
+async function api(url,opt){const r=await fetch(url,opt);if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}
 function tab(id,b){document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));$(id).classList.add('active');document.querySelectorAll('.nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');if(id==='markets')loadMarkets();if(id==='positions')loadPositions();if(id==='stats')loadStats();}
 function fmt(n,d=2){return Number(n||0).toLocaleString('en-US',{maximumFractionDigits:d,minimumFractionDigits:d});}
 async function loadHome(){
@@ -96,7 +96,7 @@ async function openPos(i){
   if(r.error){alert('Не удалось открыть: '+r.error);return}
   await loadHome(); await loadPositions();
 }
-async function loadMarkets(){const m=await api('/api/markets');$('marketsList').innerHTML=m.slice(0,60).map(x=>'<div class="op"><div class="row"><span class="symbol">'+x.symbol+'</span><span class="'+(x.change_24h>=0?'long':'short')+'">'+(x.change_24h*100).toFixed(2)+'%</span></div><div class="meta"><span>$'+fmt(x.last,6)+'</span><span>24h $'+(x.turnover_24h/1e6).toFixed(1)+'M</span><span>spread '+x.spread_bps.toFixed(1)+'bps</span></div></div>').join('')||'<div class="empty">Рынки недоступны</div>';}
+async function loadMarkets(){try{const m=await api('/api/markets');$('marketsList').innerHTML=m.slice(0,60).map(x=>'<div class="op"><div class="row"><span class="symbol">'+x.symbol+'</span><span class="'+(x.change_24h>=0?'long':'short')+'">'+(x.change_24h*100).toFixed(2)+'%</span></div><div class="meta"><span>$'+fmt(x.last,6)+'</span><span>24h $'+(x.turnover_24h/1e6).toFixed(1)+'M</span><span>spread '+x.spread_bps.toFixed(1)+'bps</span></div></div>').join('')||'<div class="empty">Рынки недоступны</div>';}
 async function loadPositions(){const p=await api('/api/positions');$('posCount').textContent=p.length+' / '+(window.maxPos||3);$('positionsList').innerHTML=p.length?p.map(x=>'<div class="op"><div class="row"><div><span class="symbol">'+x.symbol+'</span> <span class="side '+x.side.toLowerCase()+'">'+x.side+'</span></div><button class="btn danger" onclick="closePos(\''+x.id+'\')">Закрыть</button></div><div class="meta"><span>Entry '+fmt(x.entry,6)+'</span><span>Qty '+fmt(x.quantity,4)+'</span><span>Lev '+x.leverage+'x</span><span class="'+(x.pnl>=0?'long':'short')+'">PnL $'+fmt(x.pnl)+'</span></div><div class="meta"><span>SL '+fmt(x.stop_loss,6)+'</span><span>TP: '+x.take_profits.map(v=>fmt(v,6)).join(' / ')+'</span></div></div>').join(''):'<div class="empty">Открытых позиций нет</div>';}
 async function closePos(id){await api('/api/positions/'+id+'/close',{method:'POST'});loadPositions();loadStats();loadHome();}
 async function loadStats(){const h=await api('/api/history');const wins=h.filter(x=>Number(x.pnl)>0).length;$('trades').textContent=h.length;$('winrate').textContent=h.length?Math.round(wins/h.length*100)+'%':'—';$('history').innerHTML=h.length?h.map(x=>'<div class="op"><div class="row"><span class="symbol">'+x.symbol+' '+x.side+'</span><span class="'+(x.pnl>=0?'long':'short')+'">$'+fmt(x.pnl)+'</span></div><div class="meta"><span>'+x.reason+'</span><span>'+new Date(x.closed_at).toLocaleString()+'</span></div></div>').join(''):'<div class="empty">История пока пуста</div>';}
