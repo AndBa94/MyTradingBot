@@ -22,6 +22,7 @@ class Engine:
         self.last_scan_at = None
         self.last_action = "Ожидание рынка"
         self.cooldowns = {}
+        self.paper_fee_rate = float(getattr(s, "paper_taker_fee_rate", 0.00055))
 
         saved = self.store.get_settings()
         self.settings = {
@@ -135,6 +136,9 @@ class Engine:
 
         # Strategy already generated the requested number of dynamic TP levels.
         tps = o.take_profits[:int(self.settings["take_profits"])]
+        entry_fee = abs(o.entry * q) * self.paper_fee_rate
+        if entry_fee >= self.balance:
+            return None
         p = Position(
             str(uuid.uuid4()),
             o.symbol,
@@ -148,7 +152,12 @@ class Engine:
             initial_quantity=q,
             last_price=o.entry,
             initial_stop_loss=o.stop_loss,
+            entry_fee=entry_fee,
+            fees=entry_fee,
+            realized_pnl=-entry_fee,
         )
+        self.balance -= entry_fee
+        self.store.save_settings({"balance": self.balance})
         self.positions[p.id] = p
         if automatic:
             self.last_action = f"AUTO OPEN {p.symbol} {p.side}"
@@ -227,9 +236,14 @@ class Engine:
         # Equal tranches. The final tranche closes the remainder.
         qty_to_close = p.initial_quantity / len(p.take_profits)
         qty_to_close = min(qty_to_close, p.quantity)
-        realized = self._unrealized(p, price, qty_to_close)
+        gross_realized = self._unrealized(p, price, qty_to_close)
+        exit_fee = abs(price * qty_to_close) * self.paper_fee_rate
+        realized = gross_realized - exit_fee
         p.realized_pnl += realized
+        p.fees += exit_fee
         p.quantity -= qty_to_close
+        self.balance += realized
+        self.store.save_settings({"balance": self.balance})
         p.tp_index += 1
         p.pnl = self._unrealized(p, price)
 
@@ -241,21 +255,28 @@ class Engine:
             p.stop_loss = prev_tp
 
         self.last_action = (
-            f"TP{p.tp_index} {p.symbol} | +{realized:.2f} USDT realized"
+            f"TP{p.tp_index} {p.symbol} | {realized:+.2f} USDT net | fee {exit_fee:.4f}"
         )
 
     def _finish_position(self, p, price, reason):
         if p.id not in self.positions:
             return
-        final_pnl = p.realized_pnl + self._unrealized(p, price, p.quantity)
+        gross_remaining = self._unrealized(p, price, p.quantity)
+        exit_fee = abs(price * p.quantity) * self.paper_fee_rate
+        net_remaining = gross_remaining - exit_fee
+        final_pnl = p.realized_pnl + net_remaining
+        p.fees += exit_fee
         p.pnl = final_pnl
         p.last_price = price
         p.status = "CLOSED"
-        self.store.add_trade(p, price, final_pnl, reason)
-        self.balance += final_pnl
+        self.store.add_trade(p, price, final_pnl, reason, p.fees)
+        # Prior TP tranches were already credited when they closed.
+        self.balance += net_remaining
         self.store.save_settings({"balance": self.balance})
         del self.positions[p.id]
-        self.last_action = f"CLOSE {p.symbol} | {reason} | {final_pnl:+.2f} USDT"
+        self.last_action = (
+            f"CLOSE {p.symbol} | {reason} | {final_pnl:+.2f} USDT | fee {p.fees:.4f}"
+        )
 
     async def refresh_positions(self):
         if not self.positions:
@@ -281,6 +302,7 @@ class Engine:
         return p
 
     def update_settings(self, data):
+        old_budget = self.settings["budget"]
         if "budget" in data:
             self.settings["budget"] = max(1.0, float(data["budget"]))
         if "leverage" in data:
@@ -290,9 +312,10 @@ class Engine:
         if "max_positions" in data:
             self.settings["max_positions"] = max(1, min(5, int(data["max_positions"])))
 
-        # Changing the configured budget also resets the PAPER account balance
-        # to that new starting amount when settings are changed.
-        self.balance = self.settings["budget"]
+        # Change the account baseline only when the budget itself changed.
+        # Saving TP/leverage/max-position settings must not erase accumulated PnL.
+        if self.settings["budget"] != old_budget:
+            self.balance += self.settings["budget"] - old_budget
         self._sync_all_open_tps()
         self.store.save_settings({**self.settings, "balance": self.balance})
         return self.settings
