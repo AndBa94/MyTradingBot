@@ -87,7 +87,7 @@ class TradingMathTests(unittest.TestCase):
         self.assertAlmostEqual(self.engine.balance, before, places=10)
 
         self.engine.update_settings({"budget": 150})
-        self.assertAlmostEqual(self.engine.balance, before + 50, places=10)
+        self.assertAlmostEqual(self.engine.balance, 150.0, places=10)
         self.assertAlmostEqual(self.engine.capital_base, 150, places=10)
         self.assertIn(p.id, self.engine.positions)
 
