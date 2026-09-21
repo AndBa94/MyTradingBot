@@ -16,6 +16,7 @@ class Engine:
         self.positions = {}
         self.last_scan = []
         self.running = False
+        self.trading_enabled = False
         self.last_scan_at = None
         self.settings = {
             "budget": self.balance,
@@ -58,6 +59,8 @@ class Engine:
             await asyncio.sleep(self.s.scan_interval_seconds)
 
     def open_paper(self, o):
+        if not self.trading_enabled:
+            return None
         if len(self.positions) >= int(self.settings["max_positions"]):
             return None
         leverage = int(self.settings["leverage"])
@@ -104,3 +107,7 @@ class Engine:
         if "max_positions" in data:
             self.settings["max_positions"] = max(1, min(5, int(data["max_positions"])))
         return self.settings
+
+    def set_trading(self, enabled):
+        self.trading_enabled = bool(enabled)
+        return self.trading_enabled
