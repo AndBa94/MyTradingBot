@@ -26,3 +26,7 @@ class Store:
         c = self.db.execute("SELECT * FROM trades ORDER BY closed_at DESC LIMIT 20")
         cols = [x[0] for x in c.description]
         return [dict(zip(cols, r)) for r in c.fetchall()]
+
+    def reset(self):
+        self.db.execute("DELETE FROM trades")
+        self.db.commit()
