@@ -286,7 +286,7 @@ class Engine:
         p.fees += exit_fee
         p.quantity -= qty_to_close
         self.balance += realized
-        self.store.save_settings({"balance": self.balance})
+        self._persist_balance()
         p.tp_index += 1
         p.pnl = p.realized_pnl + self._net_unrealized(p, price)
 
@@ -316,7 +316,7 @@ class Engine:
         self.store.add_trade(p, price, final_pnl, reason, p.fees)
         # Prior TP tranches were already credited when they closed.
         self.balance += net_remaining
-        self.store.save_settings({"balance": self.balance})
+        self._persist_balance()
         del self.positions[p.id]
         self.store.delete_position(p.id)
         self.last_action = (
@@ -394,12 +394,13 @@ class Engine:
         self.store.clear_positions()
         self.last_scan = []
         self.cooldowns.clear()
-        self.balance = self.settings["budget"]
-        self.capital_base = self.settings["budget"]
+        # Reset means return PAPER to the starting capital, not the current live balance.
+        self.balance = self.capital_base
+        self.settings["budget"] = self.capital_base
         self.trading_enabled = False
         self.last_action = "PAPER сброшен"
         self.store.reset()
-        self.store.save_settings({**self.settings, "balance": self.balance, "capital_base": self.capital_base, "trading_enabled": False})
+        self.store.save_settings({**self.settings, "budget": self.balance, "balance": self.balance, "capital_base": self.capital_base, "trading_enabled": False})
 
     def set_trading(self, enabled):
         self.trading_enabled = bool(enabled)
