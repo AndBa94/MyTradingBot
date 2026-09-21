@@ -366,7 +366,8 @@ class Engine:
                 self.settings["budget"] = old_budget
                 raise ValueError("budget withdrawal exceeds available PAPER balance")
             self.balance = new_balance
-            self.capital_base += delta
+            # An explicit budget edit defines the new starting capital baseline.
+            self.capital_base = self.settings["budget"]
         self._sync_all_open_tps()
         self.store.save_settings({**self.settings, "balance": self.balance, "capital_base": self.capital_base})
         return self.settings
