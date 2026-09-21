@@ -69,7 +69,24 @@ const $=id=>document.getElementById(id);
 async function api(url,opt){const r=await fetch(url,opt);return r.json();}
 function tab(id,b){document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));$(id).classList.add('active');document.querySelectorAll('.nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');if(id==='markets')loadMarkets();if(id==='positions')loadPositions();if(id==='stats')loadStats();}
 function fmt(n,d=2){return Number(n||0).toLocaleString('en-US',{maximumFractionDigits:d,minimumFractionDigits:d});}
-async function loadHome(){const [h,o,p,s]=await Promise.all([api('/health'),api('/api/opportunities'),api('/api/positions'),api('/api/settings')]);$('balance').textContent='(i){const r=await api('/api/paper/open/'+i,{method:'POST'});if(r.error){alert('Не удалось открыть: '+r.error);return}loadHome();loadPositions();}
+async function loadHome(){
+  const [h,o,p,s]=await Promise.all([api('/health'),api('/api/opportunities'),api('/api/positions'),api('/api/settings')]);
+  $('balance').textContent='$'+fmt(s.budget,2);
+  window.maxPos=s.max_positions;
+  $('engine').textContent=h.running?'ONLINE':'OFFLINE';
+  $('mode').textContent=(h.mode||'paper').toUpperCase()+' MODE';
+  $('oppCount').textContent=o.length;
+  $('posCount').textContent=p.length+' / '+(window.maxPos||3);
+  $('scan').textContent=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+  $('opps').innerHTML=o.length?o.slice(0,8).map((x,i)=>{
+    return '<div class="op"><div class="row"><div><span class="symbol">'+x.symbol+'</span> <span class="side '+x.side.toLowerCase()+'">'+x.side+'</span></div><button class="btn" onclick="openPos('+i+')">Войти</button></div><div class="meta"><span>'+x.regime+'</span><span>'+x.setup+'</span><span>conf '+(x.confidence*100).toFixed(0)+'%</span><span>move '+(x.expected_move*100).toFixed(2)+'%</span></div><div class="meta"><span>Entry '+fmt(x.entry,6)+'</span><span>SL '+fmt(x.stop_loss,6)+'</span><span>TP1 '+fmt(x.take_profits[0],6)+'</span></div></div>';
+  }).join(''):'<div class="empty">Подходящих входов сейчас нет.<br>Двигатель продолжает сканирование.</div>';
+}
+async function openPos(i){
+  const r=await api('/api/paper/open/'+i,{method:'POST'});
+  if(r.error){alert('Не удалось открыть: '+r.error);return}
+  await loadHome(); await loadPositions();
+}
 async function loadMarkets(){const m=await api('/api/markets');$('marketsList').innerHTML=m.slice(0,60).map(x=>'<div class="op"><div class="row"><span class="symbol">'+x.symbol+'</span><span class="'+(x.change_24h>=0?'long':'short')+'">'+(x.change_24h*100).toFixed(2)+'%</span></div><div class="meta"><span>$'+fmt(x.last,6)+'</span><span>24h $'+(x.turnover_24h/1e6).toFixed(1)+'M</span><span>spread '+x.spread_bps.toFixed(1)+'bps</span></div></div>').join('')||'<div class="empty">Рынки недоступны</div>';}
 async function loadPositions(){const p=await api('/api/positions');$('posCount').textContent=p.length+' / '+(window.maxPos||3);$('positionsList').innerHTML=p.length?p.map(x=>'<div class="op"><div class="row"><div><span class="symbol">'+x.symbol+'</span> <span class="side '+x.side.toLowerCase()+'">'+x.side+'</span></div><button class="btn danger" onclick="closePos(\''+x.id+'\')">Закрыть</button></div><div class="meta"><span>Entry '+fmt(x.entry,6)+'</span><span>Qty '+fmt(x.quantity,4)+'</span><span>Lev '+x.leverage+'x</span><span class="'+(x.pnl>=0?'long':'short')+'">PnL $'+fmt(x.pnl)+'</span></div><div class="meta"><span>SL '+fmt(x.stop_loss,6)+'</span><span>TP: '+x.take_profits.map(v=>fmt(v,6)).join(' / ')+'</span></div></div>').join(''):'<div class="empty">Открытых позиций нет</div>';}
 async function closePos(id){await api('/api/positions/'+id+'/close',{method:'POST'});loadPositions();loadStats();loadHome();}
