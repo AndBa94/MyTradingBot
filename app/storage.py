@@ -9,18 +9,23 @@ class Store:
         self.db = sqlite3.connect(path, check_same_thread=False)
         self.db.execute("""CREATE TABLE IF NOT EXISTS trades(
             id TEXT PRIMARY KEY,symbol TEXT,side TEXT,entry REAL,exit REAL,pnl REAL,
-            opened_at TEXT,closed_at TEXT,reason TEXT)""")
+            opened_at TEXT,closed_at TEXT,reason TEXT,fees REAL DEFAULT 0)""")
+        columns = {row[1] for row in self.db.execute("PRAGMA table_info(trades)").fetchall()}
+        if "fees" not in columns:
+            self.db.execute("ALTER TABLE trades ADD COLUMN fees REAL DEFAULT 0")
         self.db.execute("""CREATE TABLE IF NOT EXISTS settings(
             key TEXT PRIMARY KEY,value TEXT NOT NULL)""")
         self.db.commit()
 
-    def add_trade(self, position, exit_price, pnl, reason):
+    def add_trade(self, position, exit_price, pnl, reason, fees=0.0):
         self.db.execute(
-            "INSERT OR REPLACE INTO trades VALUES (?,?,?,?,?,?,?,?,?)",
+            """INSERT OR REPLACE INTO trades
+               (id,symbol,side,entry,exit,pnl,opened_at,closed_at,reason,fees)
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
             (
                 position.id, position.symbol, position.side, position.entry,
                 exit_price, pnl, position.opened_at.isoformat(),
-                datetime.utcnow().isoformat(), reason
+                datetime.utcnow().isoformat(), reason, fees
             )
         )
         self.db.commit()
