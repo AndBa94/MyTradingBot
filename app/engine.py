@@ -356,7 +356,7 @@ class Engine:
         today_pnl = sum(float(x["pnl"]) for x in history if str(x["closed_at"])[:10] == today.isoformat())
         closed_pnl = sum(float(x["pnl"]) for x in history)
         unrealized = sum(
-            p.realized_pnl + self._net_unrealized(p, p.last_price or p.entry)
+            self._net_unrealized(p, p.last_price or p.entry)
             for p in self.positions.values()
         )
         return {
