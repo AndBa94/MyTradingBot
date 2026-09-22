@@ -37,7 +37,7 @@ class TradingMathTests(unittest.TestCase):
             candles.append(Candle(i, close, close + 0.2, close - 0.2, close, 100))
         candles[-2] = Candle(58, 100.0, 100.2, 99.9, 100.1, 100)
         candles[-1] = Candle(59, 100.3, 100.8, 100.3, 100.7, 150)
-        market = MarketSnapshot("TEST", 100.7, 100.4, 100.6, 10_000_000, 1, 1_000_000, 0, 0, 2)
+        market = MarketSnapshot("TEST", 100.7, 100.69, 100.71, 10_000_000, 1, 1_000_000, 0, 0, 2)
         orderbook = {
             "bids": [["100.0", "1000"], ["98.0", "10"], ["97.0", "10"], ["96.0", "10"]],
             "asks": [["103.0", "10"], ["106.0", "10"], ["102.0", "10"], ["104.0", "10"], ["105.0", "10"]],
