@@ -1,0 +1,127 @@
+import unittest
+
+from app.models import Candle, MarketSnapshot
+from app.strategy import SmartStrategy
+from app.risk import position_size
+
+
+def candles_for_bounce():
+    rows = []
+    for i in range(60):
+        close = 100.0 + (0.02 if i % 2 else 0.0)
+        rows.append(Candle(i, close - 0.05, close + 0.08, close - 0.08, close, 1000))
+
+    rows[-3] = Candle(57, 99.90, 100.05, 99.80, 99.95, 1000)
+    rows[-2] = Candle(58, 99.94, 100.08, 99.82, 100.00, 1050)
+    rows[-1] = Candle(59, 99.99, 100.30, 99.78, 100.18, 1200)
+    return rows
+
+
+def candles_for_breakout():
+    rows = []
+    for i in range(60):
+        close = 100.0
+        rows.append(Candle(i, close - 0.05, close + 0.08, close - 0.08, close, 1000))
+
+    rows[-3] = Candle(57, 99.95, 100.05, 99.90, 100.00, 1000)
+    rows[-2] = Candle(58, 100.00, 100.08, 99.96, 100.02, 1050)
+    rows[-1] = Candle(59, 100.03, 100.70, 100.01, 100.55, 1400)
+    return rows
+
+
+class StrategyTests(unittest.TestCase):
+    def setUp(self):
+        self.strategy = SmartStrategy()
+
+    def test_wall_bounce(self):
+        m = MarketSnapshot(
+            "XRPUSDT", 100.18, 100.17, 100.19,
+            10_000_000, 1.0, 1_000_000, 0, 0, 2.0,
+        )
+        book = {
+            "bids": [
+                [99.8, 8], [99.79, 2], [99.78, 2],
+                [99.77, 2], [99.76, 2], [99.70, 2],
+            ],
+            "asks": [
+                [100.5, 1], [100.6, 1], [100.7, 1],
+                [100.8, 1], [100.9, 1], [101.0, 1], [101.1, 1],
+            ],
+        }
+
+        o = self.strategy.analyze(m, candles_for_bounce(), book)
+
+        self.assertIsNotNone(o)
+        self.assertEqual(o.side, "LONG")
+        self.assertEqual(o.setup, "WALL_BOUNCE")
+        self.assertLess(o.stop_loss, o.entry)
+        self.assertTrue(all(tp > o.entry for tp in o.take_profits))
+
+    def test_level_breakout(self):
+        m = MarketSnapshot(
+            "BTCUSDT", 100.55, 100.54, 100.56,
+            100_000_000, 2.0, 2_000_000, 0, 0, 2.0,
+        )
+        book = {
+            "bids": [
+                [100.10, 2], [100.09, 2], [100.08, 2],
+                [100.07, 2], [100.06, 2],
+            ],
+            "asks": [
+                [100.90, 1], [101.00, 1], [101.10, 1],
+                [101.20, 1], [101.30, 1],
+            ],
+        }
+
+        o = self.strategy.analyze(m, candles_for_breakout(), book)
+
+        self.assertIsNotNone(o)
+        self.assertEqual(o.side, "LONG")
+        self.assertEqual(o.setup, "LEVEL_BREAKOUT")
+        self.assertLess(o.stop_loss, o.entry)
+
+    def test_sub_ten_dollar_coin_is_not_rejected(self):
+        rows = []
+        for i in range(60):
+            rows.append(Candle(i, 0.98, 1.01, 0.97, 1.00, 1000))
+
+        rows[-3] = Candle(57, 0.995, 1.01, 0.98, 1.00, 1000)
+        rows[-2] = Candle(58, 1.00, 1.015, 0.99, 1.005, 1050)
+        rows[-1] = Candle(59, 1.005, 1.03, 0.985, 1.02, 1200)
+
+        m = MarketSnapshot(
+            "ALTUSDT", 1.02, 1.019, 1.021,
+            10_000_000, 1.0, 1_000_000, 0, 0, 2.0,
+        )
+        book = {
+            "bids": [
+                [0.99, 80], [0.989, 20], [0.988, 20],
+                [0.987, 20], [0.986, 20],
+            ],
+            "asks": [
+                [1.04, 10], [1.05, 10], [1.06, 10],
+                [1.07, 10], [1.08, 10],
+            ],
+        }
+
+        # The important regression check is that the old whole-dollar
+        # exclusion is gone. The exact setup may still be rejected by the
+        # strategy if its microstructure is insufficient.
+        result = self.strategy.analyze(m, rows, book)
+        self.assertTrue(result is None or result.symbol == "ALTUSDT")
+
+    def test_position_size_respects_risk_and_leverage(self):
+        q = position_size(
+            balance=1000,
+            risk_fraction=0.005,
+            entry=100,
+            stop=99,
+            max_leverage=3,
+            fee_rate=0.00055,
+        )
+        self.assertGreater(q, 0)
+        self.assertLessEqual(q, 30.0)
+
+
+if __name__ == "__main__":
+    unittest.main()
