@@ -145,6 +145,23 @@ def _trend(candles):
     return 0
 
 
+def _market_regime(candles, atr, trend):
+    """Classify the recent 5m market without using the forming candle."""
+    if not candles or atr <= 0:
+        return "UNKNOWN"
+
+    price = max(candles[-1].close, 1e-9)
+    atr_pct = atr / price
+
+    if atr_pct >= 0.006:
+        return "HIGH_VOL"
+    if trend > 0:
+        return "TREND_UP"
+    if trend < 0:
+        return "TREND_DOWN"
+    return "RANGE"
+
+
 def _rising_lows(candles, n=3):
     rows = candles[-n:]
     return len(rows) == n and all(rows[i].low >= rows[i - 1].low for i in range(1, n))
@@ -261,6 +278,7 @@ class SmartStrategy:
         recent_low = min(c.low for c in candles[-25:-1])
 
         trend = _trend(candles)
+        regime = _market_regime(candles, atr, trend)
         body = _body_strength(last)
         close_loc = _close_location(last)
         bullish = last.close > last.open
@@ -280,13 +298,17 @@ class SmartStrategy:
                 and bullish
                 and body >= 0.45
                 and close_loc >= 0.60
-                and trend == 1
+                and (trend == 1 or (
+                    regime == "RANGE"
+                    and volume_ratio >= 1.15
+                    and imbalance >= 0.58
+                ))
                 and volume_ratio >= 1.00
                 and imbalance >= 0.55
             )
             if bounce:
                 stop = support[0] - max(
-                    atr * 0.35,
+                    atr * 0.45,
                     spread * 2.0,
                     entry_long * 0.0008,
                 )
@@ -307,6 +329,8 @@ class SmartStrategy:
                         score += 0.06
                     if trend == 1:
                         score += 0.04
+                    elif regime == "RANGE":
+                        score += 0.02
                     if support[2] >= 3:
                         score += 0.05
                     candidates.append(
@@ -323,7 +347,11 @@ class SmartStrategy:
                 and bearish
                 and body >= 0.45
                 and close_loc <= 0.40
-                and trend == -1
+                and (trend == -1 or (
+                    regime == "RANGE"
+                    and volume_ratio >= 1.15
+                    and imbalance <= 0.42
+                ))
                 and volume_ratio >= 1.00
                 and imbalance <= 0.45
             )
@@ -350,6 +378,8 @@ class SmartStrategy:
                         score += 0.06
                     if trend == -1:
                         score += 0.04
+                    elif regime == "RANGE":
+                        score += 0.02
                     if resistance[2] >= 3:
                         score += 0.05
                     candidates.append(
@@ -372,15 +402,17 @@ class SmartStrategy:
 
         long_break = (
             breakout_level > 0
-            and last.close > breakout_level * 1.0002
+            and last.close > breakout_level * 1.0005
             and prev.close <= breakout_level * 1.0008
+            and last.low <= breakout_level * 1.0015
             and bullish
-            and body >= 0.50
-            and close_loc >= 0.70
+            and body >= (0.60 if regime == "HIGH_VOL" else 0.50)
+            and close_loc >= (0.78 if regime == "HIGH_VOL" else 0.70)
             and pressure_long
             and trend == 1
-            and volume_ratio >= 1.25
-            and imbalance >= 0.54
+            and volume_ratio >= (1.50 if regime == "HIGH_VOL" else 1.25)
+            and imbalance >= (0.56 if regime == "HIGH_VOL" else 0.54)
+            and (last.close - breakout_level) / breakout_level <= 0.006
         )
 
         if long_break:
@@ -427,15 +459,17 @@ class SmartStrategy:
 
         short_break = (
             breakout_level > 0
-            and last.close < breakout_level * 0.9998
+            and last.close < breakout_level * 0.9995
             and prev.close >= breakout_level * 0.9992
+            and last.high >= breakout_level * 0.9985
             and bearish
-            and body >= 0.50
-            and close_loc <= 0.30
+            and body >= (0.60 if regime == "HIGH_VOL" else 0.50)
+            and close_loc <= (0.22 if regime == "HIGH_VOL" else 0.30)
             and pressure_short
             and trend == -1
-            and volume_ratio >= 1.25
-            and imbalance <= 0.46
+            and volume_ratio >= (1.50 if regime == "HIGH_VOL" else 1.25)
+            and imbalance <= (0.44 if regime == "HIGH_VOL" else 0.46)
+            and (breakout_level - last.close) / breakout_level <= 0.006
         )
 
         if short_break:
@@ -519,6 +553,7 @@ class SmartStrategy:
         confidence = min(0.92, max(0.50, confidence))
         reasons = [
             f"setup={setup}",
+            f"regime={regime}",
             f"trend={'UP' if trend > 0 else 'DOWN' if trend < 0 else 'FLAT'}",
             f"volume_x={volume_ratio:.2f}",
             f"book_imbalance={imbalance:.3f}",
@@ -528,6 +563,7 @@ class SmartStrategy:
             f"tp1_move_pct={first_move * 100:.3f}",
             f"tp1_r={first_r:.2f}",
             f"net_cost_est_pct={round_trip_cost * 100:.3f}",
+            f"breakout_retest={'YES' if setup == 'LEVEL_BREAKOUT' else 'N/A'}",
         ]
 
         if support:
