@@ -13,14 +13,14 @@ def candles_for_bounce():
 
     rows[-3] = Candle(57, 99.90, 100.05, 99.80, 99.95, 1000)
     rows[-2] = Candle(58, 99.94, 100.08, 99.82, 100.00, 1050)
-    rows[-1] = Candle(59, 99.99, 100.30, 99.78, 100.18, 1200)
+    rows[-1] = Candle(59, 99.95, 100.30, 99.78, 100.25, 1200)
     return rows
 
 
 def candles_for_breakout():
     rows = []
     for i in range(60):
-        close = 100.0
+        close = 99.85 + max(0, i - 35) * 0.015
         rows.append(Candle(i, close - 0.05, close + 0.08, close - 0.08, close, 1000))
 
     rows[-3] = Candle(57, 99.95, 100.05, 99.90, 100.00, 1000)
