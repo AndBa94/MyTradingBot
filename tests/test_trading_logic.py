@@ -31,7 +31,7 @@ def settings():
 def opportunity(side="LONG", entry=100.0, sl=99.0, tps=None):
     return Opportunity(
         "BTCUSDT", side, "TREND", "BREAKOUT", 0.8, 0.02,
-        entry, sl, tps or [101.0, 102.0, 103.0], []
+        entry, sl, tps or [101.3, 102.2, 103.0], []
     )
 
 
@@ -141,7 +141,7 @@ class StrategyTests(unittest.TestCase):
         )
         book = {
             "bids": [["100.0", "1000"], ["98.0", "10"], ["97.0", "10"], ["96.0", "10"]],
-            "asks": [["103.0", "1000"], ["106.0", "1000"], ["102.0", "10"], ["104.0", "10"], ["105.0", "10"]],
+            "asks": [["103.0", "10"], ["106.0", "10"], ["102.0", "10"], ["104.0", "10"], ["105.0", "10"]],
         }
         o = SmartStrategy().analyze(m, candles, book, 3)
         self.assertIsNotNone(o)
