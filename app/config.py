@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     # 0.5% of PAPER equity is the maximum planned loss per position.
     risk_per_trade: float = 0.005
     paper_taker_fee_rate: float = 0.00055
+    # Conservative PAPER allowance for the 5-second scanner crossing a stop.
+    paper_stop_slippage_rate: float = 0.001
 
     # Automatic entries require a stronger setup score after the anti-repaint,
     # trend and signal-persistence filters are applied.
