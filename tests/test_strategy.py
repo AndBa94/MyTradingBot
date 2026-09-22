@@ -29,7 +29,7 @@ def candles_for_breakout():
 
     rows[-3] = Candle(57, 99.60, 99.80, 99.55, 99.70, 1000)
     rows[-2] = Candle(58, 99.70, 100.10, 99.65, 100.00, 1050)
-    rows[-1] = Candle(59, 100.00, 101.20, 99.90, 101.00, 1400)
+    rows[-1] = Candle(59, 100.00, 100.60, 99.90, 100.40, 1400)
     return rows
 
 
@@ -63,7 +63,7 @@ class StrategyTests(unittest.TestCase):
 
     def test_level_breakout(self):
         m = MarketSnapshot(
-            "BTCUSDT", 101.00, 100.99, 101.01,
+            "BTCUSDT", 100.40, 100.39, 100.41,
             100_000_000, 2.0, 2_000_000, 0, 0, 2.0,
         )
         book = {
@@ -83,6 +83,59 @@ class StrategyTests(unittest.TestCase):
         self.assertEqual(o.side, "LONG")
         self.assertEqual(o.setup, "LEVEL_BREAKOUT")
         self.assertLess(o.stop_loss, o.entry)
+
+
+
+    def test_fake_breakout_is_rejected(self):
+        rows = candles_for_breakout()
+        # Keep the level break, but close back near the middle of the candle.
+        # This is a classic wick/fake-break profile rather than acceptance.
+        rows[-1] = Candle(59, 100.00, 100.60, 99.90, 100.08, 1400)
+
+        m = MarketSnapshot(
+            "BTCUSDT", 100.08, 100.07, 100.09,
+            100_000_000, 2.0, 2_000_000, 0, 0, 2.0,
+        )
+        book = {
+            "bids": [
+                [100.02, 4], [100.01, 4], [100.00, 4],
+                [99.99, 4], [99.98, 4],
+            ],
+            "asks": [
+                [102.00, 1], [102.10, 1], [102.20, 1],
+                [102.30, 1], [102.40, 1],
+            ],
+        }
+
+        self.assertIsNone(
+            self.strategy.analyze(m, rows, book)
+        )
+
+    def test_high_volatility_requires_stronger_breakout(self):
+        rows = candles_for_breakout()
+        # Inflate the last closed candle's range enough to enter HIGH_VOL.
+        rows[-1] = Candle(59, 100.00, 102.00, 99.90, 100.80, 2000)
+
+        m = MarketSnapshot(
+            "BTCUSDT", 100.80, 100.79, 100.81,
+            100_000_000, 2.0, 2_000_000, 0, 0, 2.0,
+        )
+        book = {
+            "bids": [
+                [100.10, 4], [100.09, 4], [100.08, 4],
+                [100.07, 4], [100.06, 4],
+            ],
+            "asks": [
+                [102.00, 1], [102.10, 1], [102.20, 1],
+                [102.30, 1], [102.40, 1],
+            ],
+        }
+
+        # The move is not strong enough to satisfy the high-volatility
+        # confirmation rules, so it must stay out.
+        self.assertIsNone(
+            self.strategy.analyze(m, rows, book)
+        )
 
     def test_sub_ten_dollar_coin_is_not_rejected(self):
         rows = []
