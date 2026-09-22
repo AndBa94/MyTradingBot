@@ -278,11 +278,11 @@ class SmartStrategy:
                 and last.low <= support[0] * 1.0015
                 and last.close > support[0]
                 and bullish
-                and body >= 0.35
-                and close_loc >= 0.55
-                and trend >= 0
-                and volume_ratio >= 0.90
-                and imbalance >= 0.52
+                and body >= 0.45
+                and close_loc >= 0.60
+                and trend == 1
+                and volume_ratio >= 1.00
+                and imbalance >= 0.55
             )
             if bounce:
                 stop = support[0] - max(
@@ -301,11 +301,11 @@ class SmartStrategy:
                 )
                 if targets:
                     score = 0.55
-                    if imbalance >= 0.56:
+                    if imbalance >= 0.58:
                         score += 0.07
-                    if volume_ratio >= 1.0:
+                    if volume_ratio >= 1.15:
                         score += 0.06
-                    if trend >= 0:
+                    if trend == 1:
                         score += 0.04
                     if support[2] >= 3:
                         score += 0.05
@@ -321,11 +321,11 @@ class SmartStrategy:
                 and last.high >= resistance[0] * 0.9985
                 and last.close < resistance[0]
                 and bearish
-                and body >= 0.35
-                and close_loc <= 0.45
-                and trend <= 0
-                and volume_ratio >= 0.90
-                and imbalance <= 0.48
+                and body >= 0.45
+                and close_loc <= 0.40
+                and trend == -1
+                and volume_ratio >= 1.00
+                and imbalance <= 0.45
             )
             if bounce:
                 stop = resistance[0] + max(
@@ -344,11 +344,11 @@ class SmartStrategy:
                 )
                 if targets:
                     score = 0.55
-                    if imbalance <= 0.44:
+                    if imbalance <= 0.42:
                         score += 0.07
-                    if volume_ratio >= 1.0:
+                    if volume_ratio >= 1.15:
                         score += 0.06
-                    if trend <= 0:
+                    if trend == -1:
                         score += 0.04
                     if resistance[2] >= 3:
                         score += 0.05
@@ -375,12 +375,12 @@ class SmartStrategy:
             and last.close > breakout_level * 1.0002
             and prev.close <= breakout_level * 1.0008
             and bullish
-            and body >= 0.45
-            and close_loc >= 0.65
+            and body >= 0.50
+            and close_loc >= 0.70
             and pressure_long
-            and trend >= 0
-            and volume_ratio >= 1.10
-            and imbalance >= 0.50
+            and trend == 1
+            and volume_ratio >= 1.25
+            and imbalance >= 0.54
         )
 
         if long_break:
@@ -399,9 +399,9 @@ class SmartStrategy:
             )
             if targets:
                 score = 0.58
-                if volume_ratio >= 1.4:
+                if volume_ratio >= 1.50:
                     score += 0.08
-                if imbalance >= 0.55:
+                if imbalance >= 0.58:
                     score += 0.06
                 if prior_resistance:
                     score += 0.05
@@ -430,12 +430,12 @@ class SmartStrategy:
             and last.close < breakout_level * 0.9998
             and prev.close >= breakout_level * 0.9992
             and bearish
-            and body >= 0.45
-            and close_loc <= 0.35
+            and body >= 0.50
+            and close_loc <= 0.30
             and pressure_short
-            and trend <= 0
-            and volume_ratio >= 1.10
-            and imbalance <= 0.50
+            and trend == -1
+            and volume_ratio >= 1.25
+            and imbalance <= 0.46
         )
 
         if short_break:
@@ -454,9 +454,9 @@ class SmartStrategy:
             )
             if targets:
                 score = 0.58
-                if volume_ratio >= 1.4:
+                if volume_ratio >= 1.50:
                     score += 0.08
-                if imbalance <= 0.45:
+                if imbalance <= 0.42:
                     score += 0.06
                 if prior_support:
                     score += 0.05
