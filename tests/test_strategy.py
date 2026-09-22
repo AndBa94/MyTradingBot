@@ -22,14 +22,14 @@ def candles_for_bounce():
 def candles_for_breakout():
     rows = []
     for i in range(60):
-        close = 99.85 + max(0, i - 45) * 0.01
+        close = 99.5
         rows.append(
             Candle(i, close - 0.04, close + 0.07, close - 0.07, close, 1000)
         )
 
-    rows[-3] = Candle(57, 100.15, 100.35, 100.05, 100.30, 1000)
-    rows[-2] = Candle(58, 100.25, 100.45, 100.10, 100.40, 1050)
-    rows[-1] = Candle(59, 100.25, 100.70, 100.20, 100.55, 1400)
+    rows[-3] = Candle(57, 99.60, 99.80, 99.55, 99.70, 1000)
+    rows[-2] = Candle(58, 99.70, 100.10, 99.65, 100.00, 1050)
+    rows[-1] = Candle(59, 100.00, 101.20, 99.90, 101.00, 1400)
     return rows
 
 
@@ -63,7 +63,7 @@ class StrategyTests(unittest.TestCase):
 
     def test_level_breakout(self):
         m = MarketSnapshot(
-            "BTCUSDT", 100.55, 100.54, 100.56,
+            "BTCUSDT", 101.00, 100.99, 101.01,
             100_000_000, 2.0, 2_000_000, 0, 0, 2.0,
         )
         book = {
@@ -78,7 +78,6 @@ class StrategyTests(unittest.TestCase):
         }
 
         o = self.strategy.analyze(m, candles_for_breakout(), book)
-        print("DEBUG_BREAKOUT:", o)
 
         self.assertIsNotNone(o)
         self.assertEqual(o.side, "LONG")
