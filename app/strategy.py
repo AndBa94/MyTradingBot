@@ -204,7 +204,18 @@ class SmartStrategy:
 
         expected_move = abs(tp[-1] - entry) / entry
         costs = m.spread_bps / 10000 + abs(m.funding_rate)
-        if expected_move <= 2 * costs:
+
+        # PAPER uses taker fees on both entry and exit. The old filter only
+        # considered spread/funding, so a TP could be labelled TAKE_PROFIT
+        # while still losing money after fees. Require the FIRST target itself
+        # to clear the round-trip trading cost with a safety buffer, not only
+        # the final TP3.
+        paper_fee = 0.00055
+        round_trip_cost = costs + (2.0 * paper_fee)
+        first_move = abs(tp[0] - entry) / entry
+        if first_move <= round_trip_cost * 1.25:
+            return None
+        if expected_move <= round_trip_cost * 1.50:
             return None
 
         # Confidence is based on setup quality, not an arbitrary need for a
@@ -227,6 +238,8 @@ class SmartStrategy:
             f"wall2={wall2[0]:.0f}",
             f"volume_x={volume_ratio:.2f}",
             f"spread_bps={m.spread_bps:.2f}",
+            f"tp1_move_pct={first_move*100:.3f}",
+            f"round_trip_cost_pct={round_trip_cost*100:.3f}",
             "price_levels=WHOLE",
         ]
 
