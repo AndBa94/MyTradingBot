@@ -8,7 +8,7 @@ from app.config import Settings
 from app.engine import Engine
 from app.models import Candle, MarketSnapshot, Opportunity
 from app.storage import Store
-from app.strategy import SmartStrategy, _tp_multipliers
+from app.strategy import SmartStrategy
 
 
 class TradingMathTests(unittest.TestCase):
@@ -30,18 +30,24 @@ class TradingMathTests(unittest.TestCase):
             [],
         )
 
-    def test_tp_targets_are_exact_r_multiples(self):
+    def test_liquidity_strategy_uses_whole_price_levels(self):
         candles = []
         for i in range(60):
-            close = 100 + 0.01 * i if i < 50 else 100.5 + 0.01 * (i - 50)
+            close = 100.0
             candles.append(Candle(i, close, close + 0.2, close - 0.2, close, 100))
-        candles[-1] = Candle(59, 101, 102, 100.8, 101.5, 300)
-        market = MarketSnapshot("TEST", 101.5, 101.4, 101.6, 10_000_000, 1, 1_000_000, 0, 0, 2)
-        opportunity = SmartStrategy().analyze(market, candles, 3)
+        candles[-2] = Candle(58, 100.4, 100.7, 100.2, 100.5, 100)
+        candles[-1] = Candle(59, 100.5, 100.8, 100.3, 100.7, 150)
+        market = MarketSnapshot("TEST", 100.7, 100.4, 100.6, 10_000_000, 1, 1_000_000, 0, 0, 2)
+        orderbook = {
+            "bids": [["99.0", "1000"], ["98.0", "10"], ["97.0", "10"], ["96.0", "10"]],
+            "asks": [["103.0", "1000"], ["106.0", "1000"], ["102.0", "10"], ["104.0", "10"], ["105.0", "10"]],
+        }
+        opportunity = SmartStrategy().analyze(market, candles, orderbook, 3)
         self.assertIsNotNone(opportunity)
-        risk = opportunity.entry - opportunity.stop_loss
-        for target, multiplier in zip(opportunity.take_profits, _tp_multipliers(3)):
-            self.assertAlmostEqual((target - opportunity.entry) / risk, multiplier, places=8)
+        self.assertEqual(opportunity.entry % 1, 0)
+        self.assertEqual(opportunity.stop_loss % 1, 0)
+        self.assertTrue(all(tp % 1 == 0 for tp in opportunity.take_profits))
+        self.assertEqual(opportunity.take_profits, [102.0, 104.0, 105.0])
 
     def test_balance_is_initial_plus_net_closed_pnl(self):
         tmp, store, engine = self.make_engine()
