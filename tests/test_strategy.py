@@ -78,6 +78,7 @@ class StrategyTests(unittest.TestCase):
         }
 
         o = self.strategy.analyze(m, candles_for_breakout(), book)
+        print("DEBUG_BREAKOUT:", o)
 
         self.assertIsNotNone(o)
         self.assertEqual(o.side, "LONG")
