@@ -284,7 +284,10 @@ class Engine:
         if o.symbol in self._open_symbols():
             return None
 
-        if self._entry_blocked_after_close(o.symbol, datetime.utcnow()):
+        if automatic and self._entry_blocked_after_close(
+            o.symbol,
+            datetime.utcnow(),
+        ):
             return None
 
         if self._open_side_count(o.side) >= 3:
