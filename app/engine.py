@@ -66,9 +66,12 @@ class Engine:
         async def analyze_market(m):
             async with sem:
                 try:
-                    candles = await self.client.get_klines(m.symbol)
+                    candles, orderbook = await asyncio.gather(
+                        self.client.get_klines(m.symbol),
+                        self.client.get_orderbook(m.symbol, limit=50),
+                    )
                     return self.strategy.analyze(
-                        m, candles, int(self.settings["take_profits"])
+                        m, candles, orderbook, int(self.settings["take_profits"])
                     )
                 except Exception as exc:
                     self.last_error = f"{type(exc).__name__}: {exc}"
