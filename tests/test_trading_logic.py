@@ -128,8 +128,8 @@ class StrategyTests(unittest.TestCase):
                 "low": 99.8, "close": 100.0, "volume": 100.0
             })())
         candles[-2] = type("C", (), {
-            "timestamp": 58, "open": 100.3, "high": 100.6,
-            "low": 100.1, "close": 100.5, "volume": 100.0
+            "timestamp": 58, "open": 100.0, "high": 100.2,
+            "low": 99.9, "close": 100.1, "volume": 100.0
         })()
         candles[-1] = type("C", (), {
             "timestamp": 59, "open": 100.5, "high": 100.8,
