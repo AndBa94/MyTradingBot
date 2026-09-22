@@ -186,6 +186,51 @@ class Engine:
             if p.status == "OPEN" and p.side == side
         )
 
+    @staticmethod
+    def _reason_value(o, key):
+        prefix = f"{key}="
+        for reason in getattr(o, "reasons", []):
+            if str(reason).startswith(prefix):
+                try:
+                    return float(str(reason).split("=", 1)[1])
+                except (TypeError, ValueError):
+                    return None
+        return None
+
+    def _directional_cluster_blocked(self, o):
+        """Avoid stacking a third highly correlated directional alt bet."""
+        if self._open_side_count(o.side) < 2:
+            return False
+
+        candidate = next(
+            (m for m in self.latest_markets if m.symbol == o.symbol),
+            None,
+        )
+        if not candidate:
+            return False
+
+        c_change = float(candidate.change_24h)
+        if abs(c_change) < 0.5:
+            return False
+
+        open_markets = {
+            m.symbol: m
+            for m in self.latest_markets
+        }
+        same_direction = 0
+
+        for p in self.positions.values():
+            if p.status != "OPEN" or p.side != o.side:
+                continue
+            m = open_markets.get(p.symbol)
+            if not m:
+                continue
+            change = float(m.change_24h)
+            if abs(change) >= 0.5 and change * c_change > 0:
+                same_direction += 1
+
+        return same_direction >= 2
+
     def _signal_confirmed(self, o, now):
         key = (o.symbol, o.side, o.setup)
         stale = [
@@ -202,7 +247,31 @@ class Engine:
                 "at": now,
                 "entry": float(o.entry),
                 "confidence": float(o.confidence),
+                "book_imbalance": self._reason_value(o, "book_imbalance"),
             }
+            return False
+
+        current_imbalance = self._reason_value(o, "book_imbalance")
+        previous_imbalance = previous.get("book_imbalance")
+        if current_imbalance is None or previous_imbalance is None:
+            self.signal_confirmations.pop(key, None)
+            return False
+
+        if o.side == "LONG":
+            microstructure_holds = (
+                current_imbalance >= 0.54
+                and previous_imbalance >= 0.53
+                and current_imbalance >= previous_imbalance - 0.04
+            )
+        else:
+            microstructure_holds = (
+                current_imbalance <= 0.46
+                and previous_imbalance <= 0.47
+                and current_imbalance <= previous_imbalance + 0.04
+            )
+
+        if not microstructure_holds:
+            self.signal_confirmations.pop(key, None)
             return False
 
         baseline_entry = float(previous["entry"])
@@ -236,6 +305,7 @@ class Engine:
             favorable_move >= min_confirmation_move
             and favorable_move <= max_chase_move
             and confidence_holds
+            and microstructure_holds
         )
 
         if confirmed:
@@ -243,6 +313,7 @@ class Engine:
             previous["at"] = now
             previous["entry"] = float(o.entry)
             previous["confidence"] = float(o.confidence)
+            previous["book_imbalance"] = current_imbalance
             return True
 
         # Confirmation failed: start a fresh baseline from the current signal.
@@ -252,6 +323,7 @@ class Engine:
             "at": now,
             "entry": float(o.entry),
             "confidence": float(o.confidence),
+            "book_imbalance": current_imbalance,
         }
         return False
 
@@ -291,6 +363,9 @@ class Engine:
                 continue
 
             if self._entry_blocked_after_close(o.symbol, now):
+                continue
+
+            if self._directional_cluster_blocked(o):
                 continue
 
             if o.symbol in self._open_symbols():
