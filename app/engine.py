@@ -196,16 +196,64 @@ class Engine:
             self.signal_confirmations.pop(k, None)
 
         previous = self.signal_confirmations.get(key)
-        if previous:
+        if not previous:
+            self.signal_confirmations[key] = {
+                "count": 1,
+                "at": now,
+                "entry": float(o.entry),
+                "confidence": float(o.confidence),
+            }
+            return False
+
+        baseline_entry = float(previous["entry"])
+        risk = abs(float(o.entry) - float(o.stop_loss))
+        if risk <= 0 or baseline_entry <= 0:
+            self.signal_confirmations.pop(key, None)
+            return False
+
+        favorable_move = (
+            float(o.entry) - baseline_entry
+            if o.side == "LONG"
+            else baseline_entry - float(o.entry)
+        )
+
+        # The signal must actually improve between scans. A repeated static
+        # order-book snapshot is not confirmation. We only need a small move
+        # (about 0.08R), so the confirmation does not chase a large breakout.
+        min_confirmation_move = max(
+            risk * 0.08,
+            baseline_entry * 0.00015,
+        )
+        max_chase_move = max(
+            risk * 0.45,
+            baseline_entry * 0.0010,
+        )
+
+        confidence_holds = (
+            float(o.confidence) >= float(previous["confidence"]) - 0.03
+        )
+        confirmed = (
+            favorable_move >= min_confirmation_move
+            and favorable_move <= max_chase_move
+            and confidence_holds
+        )
+
+        if confirmed:
             previous["count"] += 1
             previous["at"] = now
-        else:
-            previous = {"count": 1, "at": now}
-            self.signal_confirmations[key] = previous
+            previous["entry"] = float(o.entry)
+            previous["confidence"] = float(o.confidence)
+            return True
 
-        # One scan is not enough for an order-book scalp. Require the same
-        # setup/side to survive at least two scans (~10s at the current loop).
-        return previous["count"] >= 2
+        # Confirmation failed: start a fresh baseline from the current signal.
+        # This prevents an old signal from becoming an entry several scans later.
+        self.signal_confirmations[key] = {
+            "count": 1,
+            "at": now,
+            "entry": float(o.entry),
+            "confidence": float(o.confidence),
+        }
+        return False
 
     def _entry_blocked_after_close(self, symbol, now):
         closed = self.recent_closes.get(symbol)
@@ -302,6 +350,9 @@ class Engine:
             o.stop_loss,
             leverage,
             fee_rate=self.paper_fee_rate,
+            stop_slippage_rate=float(
+                getattr(self.s, "paper_stop_slippage_rate", 0.001)
+            ),
         )
 
         used_margin = sum(
