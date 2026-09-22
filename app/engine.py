@@ -35,6 +35,8 @@ class Engine:
         self.last_scan_at = None
         self.last_action = "Ожидание рынка"
         self.cooldowns = {}
+        self.signal_confirmations = {}
+        self.recent_closes = {}
         self.paper_fee_rate = float(
             getattr(s, "paper_taker_fee_rate", 0.00055)
         )
@@ -110,9 +112,12 @@ class Engine:
                     )
 
                     previous_orderbook = self.previous_orderbooks.get(m.symbol)
+                    # Bybit includes the currently forming 5m candle. Using it for
+                    # entry logic causes intrabar wick/volume signals to repaint.
+                    signal_candles = candles[:-1]
                     opportunity = self.strategy.analyze(
                         m,
-                        candles,
+                        signal_candles,
                         orderbook,
                         int(self.settings["take_profits"]),
                         previous_orderbook=previous_orderbook,
@@ -181,6 +186,41 @@ class Engine:
             if p.status == "OPEN" and p.side == side
         )
 
+    def _signal_confirmed(self, o, now):
+        key = (o.symbol, o.side, o.setup)
+        stale = [
+            k for k, v in self.signal_confirmations.items()
+            if (now - v["at"]).total_seconds() > 45
+        ]
+        for k in stale:
+            self.signal_confirmations.pop(k, None)
+
+        previous = self.signal_confirmations.get(key)
+        if previous:
+            previous["count"] += 1
+            previous["at"] = now
+        else:
+            previous = {"count": 1, "at": now}
+            self.signal_confirmations[key] = previous
+
+        # One scan is not enough for an order-book scalp. Require the same
+        # setup/side to survive at least two scans (~10s at the current loop).
+        return previous["count"] >= 2
+
+    def _entry_blocked_after_close(self, symbol, now):
+        closed = self.recent_closes.get(symbol)
+        if not closed:
+            return False
+
+        closed_at, side, reason = closed
+        age = (now - closed_at).total_seconds()
+
+        if reason == "STOP_LOSS" and age < 600:
+            return True
+        if reason != "STOP_LOSS" and age < 180:
+            return True
+        return False
+
     def auto_enter(self):
         if not self.trading_enabled:
             return
@@ -197,6 +237,12 @@ class Engine:
                 break
 
             if o.confidence < float(self.s.auto_min_confidence):
+                continue
+
+            if not self._signal_confirmed(o, now):
+                continue
+
+            if self._entry_blocked_after_close(o.symbol, now):
                 continue
 
             if o.symbol in self._open_symbols():
@@ -236,6 +282,9 @@ class Engine:
             return None
 
         if o.symbol in self._open_symbols():
+            return None
+
+        if self._entry_blocked_after_close(o.symbol, datetime.utcnow()):
             return None
 
         if self._open_side_count(o.side) >= 3:
@@ -549,6 +598,16 @@ class Engine:
         self.balance += net_remaining
         self._persist_balance()
 
+        self.recent_closes[p.symbol] = (
+            datetime.utcnow(),
+            p.side,
+            reason,
+        )
+        self.signal_confirmations = {
+            k: v for k, v in self.signal_confirmations.items()
+            if k[0] != p.symbol
+        }
+
         del self.positions[p.id]
         self.store.delete_position(p.id)
 
@@ -707,6 +766,8 @@ class Engine:
         self.last_scan = []
         self.previous_orderbooks.clear()
         self.cooldowns.clear()
+        self.signal_confirmations.clear()
+        self.recent_closes.clear()
 
         self.balance = self.capital_base
         self.settings["budget"] = self.capital_base
