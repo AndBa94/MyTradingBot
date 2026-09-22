@@ -1,4 +1,4 @@
-HTML = r'''<!doctype html>
+HTML = r"""<!doctype html>
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -54,7 +54,7 @@ async function refreshAll(){await loadHome();if($('markets').classList.contains(
 loadSettings();loadHome();loadStats();setInterval(refreshAll,5000);
 </script>
 </body>
-</html>'''
+</html>"""
 +fmt(h.balance,2);window.maxPos=s.max_positions;$('engine').textContent=h.running?'ONLINE':'OFFLINE';$('tradeBtn').textContent=h.trading_enabled?'■ Остановить':'▶ Запустить';$('tradeBtn').className='tradeBtn '+(h.trading_enabled?'tradeOn':'tradeOff');$('tradeHint').textContent=h.trading_enabled?'Торговля разрешена (PAPER)':'Сигналы ищутся, входы отключены';$('mode').textContent=(h.mode||'paper').toUpperCase()+' MODE';$('oppCount').textContent=o.length;$('posCount').textContent=p.length+' / '+(window.maxPos||3);$('scan').textContent=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});$('opps').innerHTML=o.length?o.slice(0,8).map((x,i)=>'<div class="op"><div class="row"><div><span class="symbol">'+x.symbol+'</span> <span class="side '+x.side.toLowerCase()+'">'+x.side+'</span></div><button class="btn" onclick="openPos('+i+')">Войти</button></div><div class="meta"><span>'+x.regime+'</span><span>'+x.setup+'</span><span>conf '+(x.confidence*100).toFixed(0)+'%</span><span>move '+(x.expected_move*100).toFixed(2)+'%</span></div><div class="meta"><span>Entry '+fmt(x.entry,6)+'</span><span>SL '+fmt(x.stop_loss,6)+'</span><span>TP1 '+fmt(x.take_profits[0],6)+'</span></div></div>').join(''):'<div class="empty">Подходящих входов сейчас нет.<br>Двигатель продолжает сканирование.</div>'}catch(e){$('engine').textContent='OFFLINE';$('opps').innerHTML='<div class="empty">Сервис перезапускается…<br><span class="tiny">Обнови через несколько секунд.</span></div>'}}
 async function toggleTrading(){try{const h=await api('/health');await api('/api/trading',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:!h.trading_enabled})});await loadHome()}catch(e){alert('Сервис пока недоступен')}}
 async function openPos(i){const r=await api('/api/paper/open/'+i,{method:'POST'});if(r.error){alert('Не удалось открыть: '+r.error);return}await loadHome();await loadPositions()}
@@ -69,4 +69,4 @@ async function refreshAll(){await loadHome();if($('markets').classList.contains(
 loadSettings();loadHome();loadStats();setInterval(refreshAll,5000);
 </script>
 </body>
-</html>'''
+</html>"""
