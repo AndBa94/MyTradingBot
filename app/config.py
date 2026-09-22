@@ -27,9 +27,9 @@ class Settings(BaseSettings):
     risk_per_trade: float = 0.005
     paper_taker_fee_rate: float = 0.00055
 
-    # 0.60 avoids the old situation where a valid setup scoring 0.60-0.61
-    # was silently discarded, while still requiring multiple confirmations.
-    auto_min_confidence: float = 0.66
+    # Automatic entries require a stronger setup score after the anti-repaint,
+    # trend and signal-persistence filters are applied.
+    auto_min_confidence: float = 0.68
     auto_cooldown_seconds: int = 90
     max_hold_minutes: int = 30
 
