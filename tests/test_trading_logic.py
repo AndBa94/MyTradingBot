@@ -132,7 +132,7 @@ class StrategyTests(unittest.TestCase):
             "low": 99.9, "close": 100.1, "volume": 100.0
         })()
         candles[-1] = type("C", (), {
-            "timestamp": 59, "open": 100.5, "high": 100.8,
+            "timestamp": 59, "open": 100.3, "high": 100.8,
             "low": 100.3, "close": 100.7, "volume": 150.0
         })()
         m = MarketSnapshot(
