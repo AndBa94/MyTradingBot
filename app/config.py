@@ -29,7 +29,7 @@ class Settings(BaseSettings):
 
     # Automatic entries require a stronger setup score after the anti-repaint,
     # trend and signal-persistence filters are applied.
-    auto_min_confidence: float = 0.68
+    auto_min_confidence: float = 0.75
     auto_cooldown_seconds: int = 90
     max_hold_minutes: int = 30
 
