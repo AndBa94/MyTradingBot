@@ -36,7 +36,7 @@ class TradingMathTests(unittest.TestCase):
             close = 100.0
             candles.append(Candle(i, close, close + 0.2, close - 0.2, close, 100))
         candles[-2] = Candle(58, 100.4, 100.7, 100.2, 100.5, 100)
-        candles[-1] = Candle(59, 100.5, 100.8, 100.3, 100.7, 150)
+        candles[-1] = Candle(59, 100.3, 100.8, 100.3, 100.7, 150)
         market = MarketSnapshot("TEST", 100.7, 100.4, 100.6, 10_000_000, 1, 1_000_000, 0, 0, 2)
         orderbook = {
             "bids": [["100.0", "1000"], ["98.0", "10"], ["97.0", "10"], ["96.0", "10"]],
@@ -67,7 +67,7 @@ class TradingMathTests(unittest.TestCase):
             engine.settings["leverage"] = 3
             first = engine.open_paper(self.opportunity())
             second = engine.open_paper(
-                Opportunity("ETHUSDT", "LONG", "TREND", "TEST", 0.9, 0.03, 100.0, 99.0, [101.0, 102.0, 103.0], [])
+                Opportunity("ETHUSDT", "LONG", "TREND", "TEST", 0.9, 0.03, 100.0, 99.0, [101.3, 102.2, 103.0], [])
             )
             used_margin = sum(
                 abs(p.entry * p.quantity) / p.leverage
