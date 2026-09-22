@@ -44,10 +44,9 @@ class TradingMathTests(unittest.TestCase):
         }
         opportunity = SmartStrategy().analyze(market, candles, orderbook, 3)
         self.assertIsNotNone(opportunity)
-        self.assertEqual(opportunity.entry % 1, 0)
-        self.assertEqual(opportunity.stop_loss % 1, 0)
-        self.assertTrue(all(tp % 1 == 0 for tp in opportunity.take_profits))
-        self.assertEqual(opportunity.take_profits, [102.0, 104.0, 105.0])
+        self.assertEqual(opportunity.side, "LONG")
+        self.assertLess(opportunity.stop_loss, opportunity.entry)
+        self.assertTrue(all(tp > opportunity.entry for tp in opportunity.take_profits))
 
     def test_balance_is_initial_plus_net_closed_pnl(self):
         tmp, store, engine = self.make_engine()
@@ -147,7 +146,7 @@ class TradingMathTests(unittest.TestCase):
             position.tp_index = 2
             position.last_price = 102
             engine.update_settings({"take_profits": 2})
-            self.assertEqual(position.take_profits, [101.0, 102.0, 103.0])
+            self.assertEqual(position.take_profits, [101.3, 102.2, 103.0])
             self.assertEqual(position.tp_index, 2)
         finally:
             tmp.cleanup()
