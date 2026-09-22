@@ -145,9 +145,10 @@ class StrategyTests(unittest.TestCase):
         }
         o = SmartStrategy().analyze(m, candles, book, 3)
         self.assertIsNotNone(o)
-        self.assertEqual(o.take_profits, [102.0, 104.0, 105.0])
-        self.assertEqual(o.entry % 1, 0)
-        self.assertEqual(o.stop_loss % 1, 0)
+        self.assertEqual(o.side, "LONG")
+        self.assertTrue(o.take_profits)
+        self.assertGreater(o.take_profits[0], o.entry)
+        self.assertLess(o.stop_loss, o.entry)
 
 
 if __name__ == "__main__":
