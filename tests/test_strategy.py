@@ -64,8 +64,8 @@ class StrategyTests(unittest.TestCase):
         )
         book = {
             "bids": [
-                [100.10, 2], [100.09, 2], [100.08, 2],
-                [100.07, 2], [100.06, 2],
+                [100.10, 3], [100.09, 3], [100.08, 3],
+                [100.07, 3], [100.06, 3],
             ],
             "asks": [
                 [100.90, 1], [101.00, 1], [101.10, 1],
@@ -104,9 +104,7 @@ class StrategyTests(unittest.TestCase):
             ],
         }
 
-        # The important regression check is that the old whole-dollar
-        # exclusion is gone. The exact setup may still be rejected by the
-        # strategy if its microstructure is insufficient.
+        # Regression check: the old whole-dollar exclusion is gone.
         result = self.strategy.analyze(m, rows, book)
         self.assertTrue(result is None or result.symbol == "ALTUSDT")
 
