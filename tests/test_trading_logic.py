@@ -120,26 +120,34 @@ class TradingMathTests(unittest.TestCase):
 
 
 class StrategyTests(unittest.TestCase):
-    def test_tp_targets_never_exceed_hard_r_ceiling(self):
+    def test_liquidity_strategy_finds_three_integer_targets(self):
         candles = []
-        for i in range(59):
+        for i in range(60):
             candles.append(type("C", (), {
-                "timestamp": i, "open": 99.9, "high": 100.0,
-                "low": 99.8, "close": 99.9, "volume": 100.0
+                "timestamp": i, "open": 100.0, "high": 100.2,
+                "low": 99.8, "close": 100.0, "volume": 100.0
             })())
-        candles.append(type("C", (), {
-            "timestamp": 59, "open": 99.9, "high": 100.1,
-            "low": 99.9, "close": 100.05, "volume": 250.0
-        })())
+        candles[-2] = type("C", (), {
+            "timestamp": 58, "open": 100.3, "high": 100.6,
+            "low": 100.1, "close": 100.5, "volume": 100.0
+        })()
+        candles[-1] = type("C", (), {
+            "timestamp": 59, "open": 100.5, "high": 100.8,
+            "low": 100.3, "close": 100.7, "volume": 150.0
+        })()
         m = MarketSnapshot(
-            "BTCUSDT", 100.05, 100.04, 100.06, 10_000_000,
+            "BTCUSDT", 100.7, 100.4, 100.6, 10_000_000,
             0.1, 100_000, 0, 0, 2
         )
-        o = SmartStrategy().analyze(m, candles, 5)
+        book = {
+            "bids": [["99.0", "1000"], ["98.0", "10"], ["97.0", "10"], ["96.0", "10"]],
+            "asks": [["103.0", "1000"], ["106.0", "1000"], ["102.0", "10"], ["104.0", "10"], ["105.0", "10"]],
+        }
+        o = SmartStrategy().analyze(m, candles, book, 3)
         self.assertIsNotNone(o)
-        risk = abs(o.entry - o.stop_loss)
-        for tp in o.take_profits:
-            self.assertLessEqual(abs(tp - o.entry) / risk, 2.6000001)
+        self.assertEqual(o.take_profits, [102.0, 104.0, 105.0])
+        self.assertEqual(o.entry % 1, 0)
+        self.assertEqual(o.stop_loss % 1, 0)
 
 
 if __name__ == "__main__":
