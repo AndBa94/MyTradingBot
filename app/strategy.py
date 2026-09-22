@@ -35,7 +35,7 @@ def _aggregate_book(levels):
 
 
 def _wall_levels(levels, current, direction):
-    """Find unusually large whole-price liquidity walls."""
+    """Find strong whole-price liquidity walls without requiring extreme outliers."""
     book = _aggregate_book(levels)
     candidates = [
         (price, notional)
@@ -47,7 +47,11 @@ def _wall_levels(levels, current, direction):
 
     sizes = sorted(x[1] for x in candidates)
     median = sizes[len(sizes) // 2]
-    threshold = max(median * 3.0, 1.0)
+
+    # 3x the median was too restrictive for a live book: a valid wall can be
+    # only 2x the surrounding liquidity. Keep the wall definition selective,
+    # but do not require an extreme single-order outlier.
+    threshold = max(median * 2.0, 1.0)
 
     walls = [(price, size) for price, size in candidates if size >= threshold]
     walls.sort(key=lambda x: x[0])
@@ -58,7 +62,6 @@ def _select_support(walls, entry):
     below = [(p, v) for p, v in walls if p < entry]
     if not below:
         return None
-    # Prefer the closest strong wall, with size as a tiebreaker.
     return min(below, key=lambda x: (entry - x[0], -x[1]))
 
 
@@ -69,20 +72,12 @@ def _select_resistance(walls, entry):
     return min(above, key=lambda x: (x[0] - entry, -x[1]))
 
 
-def _next_wall(walls, first_price, direction):
-    if direction == "ABOVE":
-        candidates = [(p, v) for p, v in walls if p > first_price]
-        return min(candidates, key=lambda x: x[0]) if candidates else None
-    candidates = [(p, v) for p, v in walls if p < first_price]
-    return max(candidates, key=lambda x: x[0]) if candidates else None
-
-
 class SmartStrategy:
     """Liquidity-wall scalper.
 
-    The strategy deliberately ignores EMA/RSI/MACD for entries. It uses the
-    public order book as the primary source of support/resistance and only
-    uses candle direction/volume as a reaction filter.
+    Order-book liquidity remains the primary signal. EMA/RSI/MACD are not used
+    for entry. A trade requires a visible wall, an actual price reaction at
+    that wall, and enough liquidity ahead to build the TP path.
     """
 
     def analyze(self, m, candles, orderbook=None, tp_count=3):
@@ -109,39 +104,43 @@ class SmartStrategy:
         support = _select_support(bid_walls, entry_long)
         resistance = _select_resistance(ask_walls, entry_short)
 
-        # LONG: price is reacting upward from a real bid wall.
+        # A reaction is now tied to the wall being touched/reclaimed, not just
+        # a green/red candle somewhere above/below it.
+        long_tolerance = max(1.0, entry_long * 0.003)
+        short_tolerance = max(1.0, entry_short * 0.003)
+
         long_reaction = (
             support is not None
-            and last.close > prev.close
+            and last.low <= support[0] + long_tolerance
             and last.close >= support[0]
-            and volume_ratio >= 0.9
+            and last.close > last.open
+            and last.close >= prev.close
+            and volume_ratio >= 0.8
         )
 
-        # SHORT: price is reacting downward from a real ask wall.
         short_reaction = (
             resistance is not None
-            and last.close < prev.close
+            and last.high >= resistance[0] - short_tolerance
             and last.close <= resistance[0]
-            and volume_ratio >= 0.9
+            and last.close < last.open
+            and last.close <= prev.close
+            and volume_ratio >= 0.8
         )
 
         side = None
         setup = None
         entry = None
-        first_wall = None
 
         if long_reaction:
             side = "LONG"
             setup = "BID_WALL_BOUNCE"
             entry = entry_long
-            first_wall = resistance
         elif short_reaction:
             side = "SHORT"
             setup = "ASK_WALL_REJECTION"
             entry = entry_short
-            first_wall = support
 
-        if side is None or first_wall is None:
+        if side is None:
             return None
 
         # TP structure:
@@ -162,11 +161,10 @@ class SmartStrategy:
             tp2 = min(tp2, wall2[0] - 1)
             tp3 = wall2[0] - 1
             tp = [float(tp1), float(tp2), float(tp3)]
-            # SL behind the strongest nearby bid wall.
-            support_wall = support
-            if support_wall is None:
+
+            if support is None:
                 return None
-            sl = float(support_wall[0] - 1)
+            sl = float(support[0] - 1)
         else:
             below_walls = sorted(
                 [(p, v) for p, v in bid_walls if p < entry],
@@ -182,12 +180,11 @@ class SmartStrategy:
             tp2 = max(tp2, wall2[0] + 1)
             tp3 = wall2[0] + 1
             tp = [float(tp1), float(tp2), float(tp3)]
-            resistance_wall = resistance
-            if resistance_wall is None:
-                return None
-            sl = float(resistance_wall[0] + 1)
 
-        # Keep every price level an integer.
+            if resistance is None:
+                return None
+            sl = float(resistance[0] + 1)
+
         tp = [float(int(round(x))) for x in tp]
         sl = float(int(round(sl)))
         entry = float(int(round(entry)))
@@ -205,16 +202,21 @@ class SmartStrategy:
         if risk <= 0 or risk / entry > 0.02:
             return None
 
-        # Require enough room to the final target after spread/funding.
         expected_move = abs(tp[-1] - entry) / entry
         costs = m.spread_bps / 10000 + abs(m.funding_rate)
         if expected_move <= 2 * costs:
             return None
 
-        confidence = 0.60
+        # Confidence is based on setup quality, not an arbitrary need for a
+        # huge volume spike. A valid wall reaction starts above the auto-entry
+        # threshold; extra volume/wall dominance increases confidence.
+        confidence = 0.62
         if volume_ratio >= 1.2:
             confidence += 0.08
-        if first_wall[1] >= max(support[1] if support else 0, resistance[1] if resistance else 0):
+        if wall1[1] >= max(
+            support[1] if support else 0,
+            resistance[1] if resistance else 0,
+        ):
             confidence += 0.04
         confidence = min(0.92, confidence)
 
