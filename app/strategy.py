@@ -213,9 +213,9 @@ class SmartStrategy:
         paper_fee = 0.00055
         round_trip_cost = costs + (2.0 * paper_fee)
         first_move = abs(tp[0] - entry) / entry
-        if first_move <= round_trip_cost * 1.25:
+        if first_move <= round_trip_cost * 1.05:
             return None
-        if expected_move <= round_trip_cost * 1.50:
+        if expected_move <= round_trip_cost * 1.20:
             return None
 
         # Confidence is based on setup quality, not an arbitrary need for a
