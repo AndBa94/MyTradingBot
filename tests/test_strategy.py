@@ -8,7 +8,7 @@ from app.risk import position_size
 def candles_for_bounce():
     rows = []
     for i in range(60):
-        close = 100.0 + (0.02 if i % 2 else 0.0)
+        close = 99.8 + max(0, i - 40) * 0.012
         rows.append(Candle(i, close - 0.05, close + 0.08, close - 0.08, close, 1000))
 
     rows[-3] = Candle(57, 99.90, 100.05, 99.80, 99.95, 1000)
@@ -64,8 +64,8 @@ class StrategyTests(unittest.TestCase):
         )
         book = {
             "bids": [
-                [100.10, 3], [100.09, 3], [100.08, 3],
-                [100.07, 3], [100.06, 3],
+                [100.10, 4], [100.09, 4], [100.08, 4],
+                [100.07, 4], [100.06, 4],
             ],
             "asks": [
                 [100.90, 1], [101.00, 1], [101.10, 1],
@@ -116,9 +116,22 @@ class StrategyTests(unittest.TestCase):
             stop=99,
             max_leverage=3,
             fee_rate=0.00055,
+            stop_slippage_rate=0.001,
         )
         self.assertGreater(q, 0)
         self.assertLessEqual(q, 30.0)
+
+        # The extra stop-slippage allowance must make the size no larger
+        # than the original fee-only risk calculation.
+        q_without_slippage = position_size(
+            balance=1000,
+            risk_fraction=0.005,
+            entry=100,
+            stop=99,
+            max_leverage=3,
+            fee_rate=0.00055,
+        )
+        self.assertLess(q, q_without_slippage)
 
 
 if __name__ == "__main__":
