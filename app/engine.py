@@ -276,6 +276,14 @@ class Engine:
             : int(self.settings["take_profits"])
         ]
 
+        # Defense-in-depth: never allow a stale/manual opportunity to bypass
+        # the strategy's minimum 1.20R first-target rule.
+        risk = abs(o.entry - o.stop_loss)
+        if risk <= 0 or not tps:
+            return None
+        if abs(tps[0] - o.entry) < risk * 1.20:
+            return None
+
         entry_fee = (
             abs(o.entry * q) * self.paper_fee_rate
         )
@@ -573,9 +581,9 @@ class Engine:
                 )
 
                 p.last_price = price
-                p.pnl = self._unrealized(
-                    p,
-                    price,
+                p.pnl = (
+                    p.realized_pnl
+                    + self._net_unrealized(p, price)
                 )
 
         except Exception as exc:
