@@ -174,6 +174,13 @@ class Engine:
             if p.status == "OPEN"
         }
 
+    def _open_side_count(self, side):
+        return sum(
+            1
+            for p in self.positions.values()
+            if p.status == "OPEN" and p.side == side
+        )
+
     def auto_enter(self):
         if not self.trading_enabled:
             return
@@ -193,6 +200,12 @@ class Engine:
                 continue
 
             if o.symbol in self._open_symbols():
+                continue
+
+            # Limit directional concentration. Several altcoins can move
+            # together, so five simultaneous SHORTs are not five independent
+            # bets. Keep at most three open positions in the same direction.
+            if self._open_side_count(o.side) >= 3:
                 continue
 
             last_entry = self.cooldowns.get(o.symbol)
@@ -223,6 +236,9 @@ class Engine:
             return None
 
         if o.symbol in self._open_symbols():
+            return None
+
+        if self._open_side_count(o.side) >= 3:
             return None
 
         leverage = int(self.settings["leverage"])
