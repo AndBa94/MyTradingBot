@@ -58,6 +58,45 @@ class BybitClient:
 
         raise ConnectionError(f"Bybit market request failed: {last_error}")
 
+    async def get_orderbook(self, symbol, limit=50):
+        last_error = None
+        for attempt in range(3):
+            try:
+                timeout = httpx.Timeout(10.0, connect=8.0)
+                async with httpx.AsyncClient(timeout=timeout, headers=self.headers) as c:
+                    r = await c.get(
+                        f"{self.base}/v5/market/orderbook",
+                        params={"category": self.category, "symbol": symbol, "limit": limit},
+                    )
+                    r.raise_for_status()
+                    data = r.json()
+                    if data.get("retCode", 0) != 0:
+                        raise RuntimeError(
+                            f"Bybit orderbook retCode={data.get('retCode')}: {data.get('retMsg')}"
+                        )
+                    result = data.get("result", {})
+                    bids = result.get("b", [])
+                    asks = result.get("a", [])
+                    if not bids or not asks:
+                        raise RuntimeError(f"Bybit returned empty orderbook for {symbol}")
+                    return {"bids": bids, "asks": asks}
+            except (
+                httpx.TimeoutException,
+                httpx.ConnectError,
+                httpx.NetworkError,
+                RuntimeError,
+                ValueError,
+                TypeError,
+            ) as exc:
+                last_error = exc
+                if attempt < 2:
+                    await asyncio.sleep(0.7 * (attempt + 1))
+                else:
+                    raise ConnectionError(
+                        f"Bybit orderbook request failed after 3 attempts for {symbol}: {exc}"
+                    ) from exc
+        raise ConnectionError(f"Bybit orderbook request failed for {symbol}: {last_error}")
+
     async def get_klines(self, symbol, interval="5", limit=200):
         last_error = None
         for attempt in range(3):
