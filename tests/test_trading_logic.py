@@ -109,7 +109,7 @@ class TradingMathTests(unittest.TestCase):
     def test_statistics_use_all_trades_not_only_last_20(self):
         for i in range(25):
             p = self.engine.open_paper(
-                opportunity(entry=100 + i, sl=99 + i, tps=[101 + i])
+                opportunity(entry=100 + i, sl=99 + i, tps=[101.3 + i])
             )
             price = 101 + i if i % 2 == 0 else 99 + i
             self.engine._finish_position(p, price, "TEST")
