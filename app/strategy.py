@@ -1,257 +1,529 @@
-import math
-from statistics import mean
+from math import isfinite
+from statistics import median
 from app.models import Opportunity
 
 
-def _whole_price(value, side=None):
-    """Return a tradable whole-number price.
-
-    LONG entries are rounded upward and SHORT entries downward so the paper
-    fill is not more optimistic than the live bid/ask.
-    """
-    if side == "LONG":
-        return float(math.ceil(value))
-    if side == "SHORT":
-        return float(math.floor(value))
-    return float(round(value))
+def _f(value, default=0.0):
+    try:
+        x = float(value)
+        return x if isfinite(x) else default
+    except (TypeError, ValueError):
+        return default
 
 
-def _aggregate_book(levels):
-    """Aggregate order-book quantity by whole-number price."""
-    out = {}
+def _book(levels):
+    out = []
     for row in levels or []:
         try:
-            price = float(row[0])
-            qty = float(row[1])
-            if price <= 0 or qty <= 0:
-                continue
-            level = int(round(price))
-            if level <= 0:
-                continue
-            out[level] = out.get(level, 0.0) + price * qty
-        except (TypeError, ValueError, IndexError):
+            price = _f(row[0])
+            qty = _f(row[1])
+        except (IndexError, TypeError):
             continue
+        if price > 0 and qty > 0:
+            out.append((price, qty, price * qty))
     return out
 
 
-def _wall_levels(levels, current, direction):
-    """Find strong whole-price liquidity walls without requiring extreme outliers."""
-    book = _aggregate_book(levels)
-    candidates = [
-        (price, notional)
-        for price, notional in book.items()
-        if (price > current if direction == "ABOVE" else price < current)
-    ]
+def _median(values, default=0.0):
+    vals = sorted(v for v in values if v > 0 and isfinite(v))
+    return median(vals) if vals else default
+
+
+def _atr(candles, period=20):
+    rows = candles[-period - 1:]
+    if len(rows) < 3:
+        return 0.0
+    trs = []
+    for i in range(1, len(rows)):
+        c = rows[i]
+        prev_close = rows[i - 1].close
+        trs.append(max(c.high - c.low, abs(c.high - prev_close), abs(c.low - prev_close)))
+    return _median(trs, 0.0)
+
+
+def _wall_levels(levels, current, direction, max_distance_pct=0.012):
+    rows = _book(levels)
+    if not rows or current <= 0:
+        return []
+
+    if direction == "ABOVE":
+        candidates = [
+            r for r in rows
+            if r[0] > current and (r[0] - current) / current <= max_distance_pct
+        ]
+    else:
+        candidates = [
+            r for r in rows
+            if r[0] < current and (current - r[0]) / current <= max_distance_pct
+        ]
+
     if len(candidates) < 3:
         return []
 
-    sizes = sorted(x[1] for x in candidates)
-    median = sizes[len(sizes) // 2]
+    baseline = _median([r[2] for r in candidates], 0.0)
+    if baseline <= 0:
+        return []
 
-    # 3x the median was too restrictive for a live book: a valid wall can be
-    # only 2x the surrounding liquidity. Keep the wall definition selective,
-    # but do not require an extreme single-order outlier.
-    threshold = max(median * 2.0, 1.0)
+    # A wall must be meaningfully larger than nearby visible liquidity.
+    # We do not use rounded/whole-number prices because Bybit contracts have
+    # different tick sizes and many liquid coins trade far below $10.
+    walls = [
+        (price, notional, notional / baseline)
+        for price, _, notional in candidates
+        if notional >= baseline * 2.0
+    ]
 
-    walls = [(price, size) for price, size in candidates if size >= threshold]
-    walls.sort(key=lambda x: x[0])
+    if direction == "ABOVE":
+        walls.sort(key=lambda x: x[0])
+    else:
+        walls.sort(key=lambda x: x[0], reverse=True)
     return walls
 
 
-def _select_support(walls, entry):
-    below = [(p, v) for p, v in walls if p < entry]
-    if not below:
-        return None
-    return min(below, key=lambda x: (entry - x[0], -x[1]))
+def _nearest_level(levels, current, direction, max_distance_pct):
+    rows = _book(levels)
+    if direction == "ABOVE":
+        candidates = [
+            r for r in rows
+            if r[0] > current and (r[0] - current) / current <= max_distance_pct
+        ]
+        return min(candidates, key=lambda r: r[0]) if candidates else None
+
+    candidates = [
+        r for r in rows
+        if r[0] < current and (current - r[0]) / current <= max_distance_pct
+    ]
+    return max(candidates, key=lambda r: r[0]) if candidates else None
 
 
-def _select_resistance(walls, entry):
-    above = [(p, v) for p, v in walls if p > entry]
-    if not above:
+def _body_strength(candle):
+    rng = max(candle.high - candle.low, candle.close * 1e-9)
+    return abs(candle.close - candle.open) / rng
+
+
+def _close_location(candle):
+    rng = max(candle.high - candle.low, candle.close * 1e-9)
+    return (candle.close - candle.low) / rng
+
+
+def _book_stats(orderbook):
+    bids = _book(orderbook.get("bids", []))
+    asks = _book(orderbook.get("asks", []))
+    bid_total = sum(x[2] for x in bids[:12])
+    ask_total = sum(x[2] for x in asks[:12])
+    total = bid_total + ask_total
+    imbalance = bid_total / total if total > 0 else 0.5
+    return bids, asks, imbalance
+
+
+def _previous_wall(previous_orderbook, current, direction):
+    if not previous_orderbook:
         return None
-    return min(above, key=lambda x: (x[0] - entry, -x[1]))
+
+    side = "asks" if direction == "ABOVE" else "bids"
+    walls = _wall_levels(
+        previous_orderbook.get(side, []),
+        current,
+        direction,
+        max_distance_pct=0.015,
+    )
+    return walls[0] if walls else None
+
+
+def _trend(candles):
+    closes = [c.close for c in candles[-24:]]
+    if len(closes) < 12:
+        return 0
+
+    fast = sum(closes[-6:]) / 6
+    slow = sum(closes[-18:]) / 18
+
+    if fast > slow * 1.0008:
+        return 1
+    if fast < slow * 0.9992:
+        return -1
+    return 0
+
+
+def _rising_lows(candles, n=3):
+    rows = candles[-n:]
+    return len(rows) == n and all(rows[i].low >= rows[i - 1].low for i in range(1, n))
+
+
+def _falling_highs(candles, n=3):
+    rows = candles[-n:]
+    return len(rows) == n and all(rows[i].high <= rows[i - 1].high for i in range(1, n))
+
+
+def _make_targets(side, entry, stop, first_level, second_level, atr):
+    risk = abs(entry - stop)
+    if risk <= 0:
+        return []
+
+    min_step = max(entry * 0.0007, atr * 0.15)
+
+    if side == "LONG":
+        candidates = [
+            entry + max(risk * 1.25, min_step),
+            entry + max(risk * 2.0, min_step * 1.5),
+            entry + max(risk * 2.8, min_step * 2.0),
+        ]
+        if first_level and first_level > entry:
+            candidates[0] = min(candidates[0], first_level * 0.999)
+        if second_level and second_level > entry:
+            candidates[1] = min(candidates[1], second_level * 0.999)
+            candidates[2] = min(candidates[2], second_level * 0.999)
+
+        targets = []
+        for x in candidates:
+            if x > entry and (not targets or x > targets[-1]):
+                targets.append(x)
+        return targets
+
+    candidates = [
+        entry - max(risk * 1.25, min_step),
+        entry - max(risk * 2.0, min_step * 1.5),
+        entry - max(risk * 2.8, min_step * 2.0),
+    ]
+    if first_level and first_level < entry:
+        candidates[0] = max(candidates[0], first_level * 1.001)
+    if second_level and second_level < entry:
+        candidates[1] = max(candidates[1], second_level * 1.001)
+        candidates[2] = max(candidates[2], second_level * 1.001)
+
+    targets = []
+    for x in candidates:
+        if x < entry and (not targets or x < targets[-1]):
+            targets.append(x)
+    return targets
 
 
 class SmartStrategy:
-    """Liquidity-wall scalper.
+    """Microstructure scalper using liquidity walls, levels, pressure and volume.
 
-    Order-book liquidity remains the primary signal. EMA/RSI/MACD are not used
-    for entry. A trade requires a visible wall, an actual price reaction at
-    that wall, and enough liquidity ahead to build the TP path.
+    Two setups are supported:
+    - WALL_BOUNCE: price tests visible liquidity and rejects it.
+    - LEVEL_BREAKOUT: price breaks a recent level/wall with pressure and volume.
+
+    A single visible wall is never enough to enter.
     """
 
-    def analyze(self, m, candles, orderbook=None, tp_count=3):
-        if len(candles) < 30 or not orderbook:
+    def analyze(
+        self,
+        m,
+        candles,
+        orderbook=None,
+        tp_count=3,
+        previous_orderbook=None,
+    ):
+        if len(candles) < 40 or not orderbook or m.last <= 0:
             return None
 
-        # Whole-number price logic becomes too coarse on very cheap coins.
-        if m.last < 10:
-            return None
+        last = candles[-1]
+        prev = candles[-2]
+        prev2 = candles[-3]
 
-        last, prev = candles[-1], candles[-2]
-        avg_volume = mean(c.volume for c in candles[-21:-1])
+        avg_volume = _median([c.volume for c in candles[-21:-1]], 0.0)
         volume_ratio = last.volume / max(avg_volume, 1e-9)
+        atr = _atr(candles, 20)
+        if atr <= 0:
+            return None
 
-        entry_long = _whole_price(m.ask, "LONG")
-        entry_short = _whole_price(m.bid, "SHORT")
+        bids, asks, imbalance = _book_stats(orderbook)
+        if not bids or not asks:
+            return None
 
-        bids = orderbook.get("bids", [])
-        asks = orderbook.get("asks", [])
+        entry_long = max(_f(m.ask), _f(m.last))
+        entry_short = min(_f(m.bid), _f(m.last))
+        spread = max(_f(m.ask) - _f(m.bid), 0.0)
+        spread_pct = spread / max(m.last, 1e-9)
+
+        # Extremely wide spreads make a few-minute scalp economically fragile.
+        if spread_pct > 0.0012:
+            return None
 
         bid_walls = _wall_levels(bids, m.last, "BELOW")
         ask_walls = _wall_levels(asks, m.last, "ABOVE")
+        support = bid_walls[0] if bid_walls else None
+        resistance = ask_walls[0] if ask_walls else None
 
-        support = _select_support(bid_walls, entry_long)
-        resistance = _select_resistance(ask_walls, entry_short)
+        # 24 previous 5m candles = roughly two hours. This is deliberately
+        # more responsive than the old 4h-only breakout level.
+        recent_high = max(c.high for c in candles[-25:-1])
+        recent_low = min(c.low for c in candles[-25:-1])
 
-        # A reaction is now tied to the wall being touched/reclaimed, not just
-        # a green/red candle somewhere above/below it.
-        long_tolerance = max(1.0, entry_long * 0.003)
-        short_tolerance = max(1.0, entry_short * 0.003)
+        trend = _trend(candles)
+        body = _body_strength(last)
+        close_loc = _close_location(last)
+        bullish = last.close > last.open
+        bearish = last.close < last.open
+        pressure_long = _rising_lows(candles, 3) and last.close >= prev.close >= prev2.close
+        pressure_short = _falling_highs(candles, 3) and last.close <= prev.close <= prev2.close
 
-        long_reaction = (
-            support is not None
-            and last.low <= support[0] + long_tolerance
-            and last.close >= support[0]
-            and last.close > last.open
-            and last.close >= prev.close
-            and volume_ratio >= 0.8
+        candidates = []
+
+        # -------------------- WALL BOUNCE: LONG --------------------
+        if support:
+            dist = (entry_long - support[0]) / entry_long
+            bounce = (
+                dist <= 0.006
+                and last.low <= support[0] * 1.0015
+                and last.close > support[0]
+                and bullish
+                and close_loc >= 0.55
+                and volume_ratio >= 0.70
+                and imbalance >= 0.52
+            )
+            if bounce:
+                stop = support[0] - max(
+                    atr * 0.35,
+                    spread * 2.0,
+                    entry_long * 0.0008,
+                )
+                resistance_level = resistance[0] if resistance else recent_high
+                targets = _make_targets(
+                    "LONG",
+                    entry_long,
+                    stop,
+                    resistance_level,
+                    recent_high,
+                    atr,
+                )
+                if targets:
+                    score = 0.55
+                    if imbalance >= 0.56:
+                        score += 0.07
+                    if volume_ratio >= 1.0:
+                        score += 0.06
+                    if trend >= 0:
+                        score += 0.04
+                    if support[2] >= 3:
+                        score += 0.05
+                    candidates.append(
+                        ("LONG", "WALL_BOUNCE", score, stop, targets, support, resistance)
+                    )
+
+        # -------------------- WALL REJECTION: SHORT --------------------
+        if resistance:
+            dist = (resistance[0] - entry_short) / entry_short
+            bounce = (
+                dist <= 0.006
+                and last.high >= resistance[0] * 0.9985
+                and last.close < resistance[0]
+                and bearish
+                and close_loc <= 0.45
+                and volume_ratio >= 0.70
+                and imbalance <= 0.48
+            )
+            if bounce:
+                stop = resistance[0] + max(
+                    atr * 0.35,
+                    spread * 2.0,
+                    entry_short * 0.0008,
+                )
+                support_level = support[0] if support else recent_low
+                targets = _make_targets(
+                    "SHORT",
+                    entry_short,
+                    stop,
+                    support_level,
+                    recent_low,
+                    atr,
+                )
+                if targets:
+                    score = 0.55
+                    if imbalance <= 0.44:
+                        score += 0.07
+                    if volume_ratio >= 1.0:
+                        score += 0.06
+                    if trend <= 0:
+                        score += 0.04
+                    if resistance[2] >= 3:
+                        score += 0.05
+                    candidates.append(
+                        ("SHORT", "WALL_REJECTION", score, stop, targets, support, resistance)
+                    )
+
+        # -------------------- LEVEL BREAKOUT: LONG --------------------
+        prior_resistance = _previous_wall(previous_orderbook, m.last, "ABOVE")
+        breakout_level = max(
+            [
+                x
+                for x in [
+                    prior_resistance[0] if prior_resistance else 0,
+                    recent_high,
+                ]
+                if x > 0
+            ],
+            default=0,
         )
 
-        short_reaction = (
-            resistance is not None
-            and last.high >= resistance[0] - short_tolerance
-            and last.close <= resistance[0]
-            and last.close < last.open
-            and last.close <= prev.close
-            and volume_ratio >= 0.8
+        long_break = (
+            breakout_level > 0
+            and last.close > breakout_level * 1.0002
+            and prev.close <= breakout_level * 1.0008
+            and bullish
+            and body >= 0.45
+            and close_loc >= 0.65
+            and pressure_long
+            and volume_ratio >= 1.05
+            and imbalance >= 0.50
         )
 
-        side = None
-        setup = None
-        entry = None
+        if long_break:
+            stop = breakout_level - max(
+                atr * 0.45,
+                spread * 2.0,
+                entry_long * 0.0009,
+            )
+            targets = _make_targets(
+                "LONG",
+                entry_long,
+                stop,
+                resistance[0] if resistance else 0,
+                breakout_level + atr * 1.5,
+                atr,
+            )
+            if targets:
+                score = 0.58
+                if volume_ratio >= 1.4:
+                    score += 0.08
+                if imbalance >= 0.55:
+                    score += 0.06
+                if prior_resistance:
+                    score += 0.05
+                if trend >= 0:
+                    score += 0.04
+                candidates.append(
+                    ("LONG", "LEVEL_BREAKOUT", score, stop, targets, support, resistance)
+                )
 
-        if long_reaction:
-            side = "LONG"
-            setup = "BID_WALL_BOUNCE"
-            entry = entry_long
-        elif short_reaction:
-            side = "SHORT"
-            setup = "ASK_WALL_REJECTION"
-            entry = entry_short
+        # -------------------- LEVEL BREAKOUT: SHORT --------------------
+        prior_support = _previous_wall(previous_orderbook, m.last, "BELOW")
+        breakout_level = min(
+            [
+                x
+                for x in [
+                    prior_support[0] if prior_support else 0,
+                    recent_low,
+                ]
+                if x > 0
+            ],
+            default=0,
+        )
 
-        if side is None:
+        short_break = (
+            breakout_level > 0
+            and last.close < breakout_level * 0.9998
+            and prev.close >= breakout_level * 0.9992
+            and bearish
+            and body >= 0.45
+            and close_loc <= 0.35
+            and pressure_short
+            and volume_ratio >= 1.05
+            and imbalance <= 0.50
+        )
+
+        if short_break:
+            stop = breakout_level + max(
+                atr * 0.45,
+                spread * 2.0,
+                entry_short * 0.0009,
+            )
+            targets = _make_targets(
+                "SHORT",
+                entry_short,
+                stop,
+                support[0] if support else 0,
+                breakout_level - atr * 1.5,
+                atr,
+            )
+            if targets:
+                score = 0.58
+                if volume_ratio >= 1.4:
+                    score += 0.08
+                if imbalance <= 0.45:
+                    score += 0.06
+                if prior_support:
+                    score += 0.05
+                if trend <= 0:
+                    score += 0.04
+                candidates.append(
+                    ("SHORT", "LEVEL_BREAKOUT", score, stop, targets, support, resistance)
+                )
+
+        if not candidates:
             return None
 
-        # TP structure:
-        # TP1 before the first large wall.
-        # TP2 after that wall but before the next large wall.
-        # TP3 before the next large wall.
-        if side == "LONG":
-            above_walls = sorted(
-                [(p, v) for p, v in ask_walls if p > entry],
-                key=lambda x: x[0],
-            )
-            if len(above_walls) < 2:
-                return None
-            wall1 = above_walls[0]
-            wall2 = above_walls[1]
-            tp1 = wall1[0] - 1
-            tp2 = wall1[0] + max(1, (wall2[0] - wall1[0]) // 3)
-            tp2 = min(tp2, wall2[0] - 1)
-            tp3 = wall2[0] - 1
-            tp = [float(tp1), float(tp2), float(tp3)]
+        # Only the strongest setup is allowed. This prevents contradictory
+        # LONG/SHORT entries from the same candle.
+        side, setup, confidence, sl, tp, support, resistance = max(
+            candidates,
+            key=lambda x: x[2],
+        )
+        entry = entry_long if side == "LONG" else entry_short
 
-            if support is None:
-                return None
-            sl = float(support[0] - 1)
-        else:
-            below_walls = sorted(
-                [(p, v) for p, v in bid_walls if p < entry],
-                key=lambda x: x[0],
-                reverse=True,
-            )
-            if len(below_walls) < 2:
-                return None
-            wall1 = below_walls[0]
-            wall2 = below_walls[1]
-            tp1 = wall1[0] + 1
-            tp2 = wall1[0] - max(1, (wall1[0] - wall2[0]) // 3)
-            tp2 = max(tp2, wall2[0] + 1)
-            tp3 = wall2[0] + 1
-            tp = [float(tp1), float(tp2), float(tp3)]
-
-            if resistance is None:
-                return None
-            sl = float(resistance[0] + 1)
-
-        tp = [float(int(round(x))) for x in tp]
-        sl = float(int(round(sl)))
-        entry = float(int(round(entry)))
-
-        if side == "LONG":
-            tp = sorted(set(x for x in tp if x > entry))
-            if sl >= entry or not tp:
-                return None
-        else:
-            tp = sorted(set((x for x in tp if x < entry), reverse=True))
-            if sl <= entry or not tp:
-                return None
+        if side == "LONG" and sl >= entry:
+            return None
+        if side == "SHORT" and sl <= entry:
+            return None
 
         risk = abs(entry - sl)
-        if risk <= 0 or risk / entry > 0.02:
+        if risk <= max(spread, entry * 0.0003):
+            return None
+        if risk / entry > 0.012:
             return None
 
-        expected_move = abs(tp[-1] - entry) / entry
-        costs = m.spread_bps / 10000 + abs(m.funding_rate)
-
-        # PAPER uses taker fees on both entry and exit. The old filter only
-        # considered spread/funding, so a TP could be labelled TAKE_PROFIT
-        # while still losing money after fees. Require the FIRST target itself
-        # to clear the round-trip trading cost with a safety buffer, not only
-        # the final TP3.
-        paper_fee = 0.00055
-        round_trip_cost = costs + (2.0 * paper_fee)
-        first_move = abs(tp[0] - entry) / entry
-        if first_move <= round_trip_cost * 1.05:
-            return None
-        if expected_move <= round_trip_cost * 1.20:
-            return None
-
-        # Confidence is based on setup quality, not an arbitrary need for a
-        # huge volume spike. A valid wall reaction starts above the auto-entry
-        # threshold; extra volume/wall dominance increases confidence.
-        confidence = 0.62
-        if volume_ratio >= 1.2:
-            confidence += 0.08
-        if wall1[1] >= max(
-            support[1] if support else 0,
-            resistance[1] if resistance else 0,
-        ):
-            confidence += 0.04
-        confidence = min(0.92, confidence)
-
-        reasons = [
-            f"book_support={support[0] if support else 0:.0f}",
-            f"book_resistance={resistance[0] if resistance else 0:.0f}",
-            f"wall1={wall1[0]:.0f}",
-            f"wall2={wall2[0]:.0f}",
-            f"volume_x={volume_ratio:.2f}",
-            f"spread_bps={m.spread_bps:.2f}",
-            f"tp1_move_pct={first_move*100:.3f}",
-            f"round_trip_cost_pct={round_trip_cost*100:.3f}",
-            "price_levels=WHOLE",
+        tp = [
+            x for x in tp
+            if (x > entry if side == "LONG" else x < entry)
         ]
+        tp = tp[:max(1, min(5, int(tp_count)))]
+        if not tp:
+            return None
+
+        first_move = abs(tp[0] - entry) / entry
+        final_move = abs(tp[-1] - entry) / entry
+
+        # Paper/live taker economics: spread + estimated round-trip fees.
+        # This is deliberately checked against TP1, not only the final target.
+        round_trip_cost = spread_pct + 2.0 * 0.00055
+        if first_move <= round_trip_cost * 1.20:
+            return None
+        if final_move <= round_trip_cost * 1.60:
+            return None
+
+        confidence = min(0.92, max(0.50, confidence))
+        reasons = [
+            f"setup={setup}",
+            f"trend={'UP' if trend > 0 else 'DOWN' if trend < 0 else 'FLAT'}",
+            f"volume_x={volume_ratio:.2f}",
+            f"book_imbalance={imbalance:.3f}",
+            f"spread_bps={m.spread_bps:.2f}",
+            f"atr_pct={atr / m.last * 100:.3f}",
+            f"risk_pct={risk / entry * 100:.3f}",
+            f"tp1_move_pct={first_move * 100:.3f}",
+            f"net_cost_est_pct={round_trip_cost * 100:.3f}",
+        ]
+
+        if support:
+            reasons.append(f"support={support[0]:.8g}")
+        if resistance:
+            reasons.append(f"resistance={resistance[0]:.8g}")
+        if prior_resistance:
+            reasons.append(f"prev_ask_wall={prior_resistance[0]:.8g}")
+        if prior_support:
+            reasons.append(f"prev_bid_wall={prior_support[0]:.8g}")
 
         return Opportunity(
             m.symbol,
             side,
-            "LIQUIDITY",
+            "MICROSTRUCTURE",
             setup,
             confidence,
-            expected_move,
+            final_move,
             entry,
             sl,
-            tp[:max(1, min(5, int(tp_count)))],
+            tp,
             reasons,
         )
