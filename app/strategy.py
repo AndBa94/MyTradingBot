@@ -484,6 +484,15 @@ class SmartStrategy:
 
         first_move = abs(tp[0] - entry) / entry
         final_move = abs(tp[-1] - entry) / entry
+        first_r = abs(tp[0] - entry) / risk
+
+        # Do not enter when the first partial exit is closer than the risk.
+        # A previous version could cap TP1 at a nearby level and accidentally
+        # create a sub-1R first target, which is unfavorable for a fast scalp.
+        # 1.20R leaves room for fees/slippage while still allowing frequent
+        # partial exits.
+        if first_r < 1.20:
+            return None
 
         # Paper/live taker economics: spread + estimated round-trip fees.
         # This is deliberately checked against TP1, not only the final target.
@@ -503,6 +512,7 @@ class SmartStrategy:
             f"atr_pct={atr / m.last * 100:.3f}",
             f"risk_pct={risk / entry * 100:.3f}",
             f"tp1_move_pct={first_move * 100:.3f}",
+            f"tp1_r={first_r:.2f}",
             f"net_cost_est_pct={round_trip_cost * 100:.3f}",
         ]
 
