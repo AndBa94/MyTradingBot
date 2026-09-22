@@ -29,7 +29,7 @@ class Settings(BaseSettings):
 
     # 0.60 avoids the old situation where a valid setup scoring 0.60-0.61
     # was silently discarded, while still requiring multiple confirmations.
-    auto_min_confidence: float = 0.60
+    auto_min_confidence: float = 0.66
     auto_cooldown_seconds: int = 90
     max_hold_minutes: int = 30
 
