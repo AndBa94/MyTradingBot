@@ -26,7 +26,7 @@ class TradingMathTests(unittest.TestCase):
         return Opportunity(
             "BTCUSDT", side, "TREND", "TEST", 0.9, 0.03, 100.0,
             99.0 if side == "LONG" else 101.0,
-            [101.0, 102.0, 103.0] if side == "LONG" else [99.0, 98.0, 97.0],
+            [101.3, 102.2, 103.0] if side == "LONG" else [98.7, 97.8, 97.0],
             [],
         )
 
@@ -40,7 +40,7 @@ class TradingMathTests(unittest.TestCase):
         market = MarketSnapshot("TEST", 100.7, 100.4, 100.6, 10_000_000, 1, 1_000_000, 0, 0, 2)
         orderbook = {
             "bids": [["100.0", "1000"], ["98.0", "10"], ["97.0", "10"], ["96.0", "10"]],
-            "asks": [["103.0", "1000"], ["106.0", "1000"], ["102.0", "10"], ["104.0", "10"], ["105.0", "10"]],
+            "asks": [["103.0", "10"], ["106.0", "10"], ["102.0", "10"], ["104.0", "10"], ["105.0", "10"]],
         }
         opportunity = SmartStrategy().analyze(market, candles, orderbook, 3)
         self.assertIsNotNone(opportunity)
