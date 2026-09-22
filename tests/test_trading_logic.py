@@ -136,7 +136,7 @@ class StrategyTests(unittest.TestCase):
             "low": 100.3, "close": 100.7, "volume": 150.0
         })()
         m = MarketSnapshot(
-            "BTCUSDT", 100.7, 100.4, 100.6, 10_000_000,
+            "BTCUSDT", 100.7, 100.69, 100.71, 10_000_000,
             0.1, 100_000, 0, 0, 2
         )
         book = {
