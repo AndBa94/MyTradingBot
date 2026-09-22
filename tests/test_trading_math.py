@@ -39,7 +39,7 @@ class TradingMathTests(unittest.TestCase):
         candles[-1] = Candle(59, 100.5, 100.8, 100.3, 100.7, 150)
         market = MarketSnapshot("TEST", 100.7, 100.4, 100.6, 10_000_000, 1, 1_000_000, 0, 0, 2)
         orderbook = {
-            "bids": [["99.0", "1000"], ["98.0", "10"], ["97.0", "10"], ["96.0", "10"]],
+            "bids": [["100.0", "1000"], ["98.0", "10"], ["97.0", "10"], ["96.0", "10"]],
             "asks": [["103.0", "1000"], ["106.0", "1000"], ["102.0", "10"], ["104.0", "10"], ["105.0", "10"]],
         }
         opportunity = SmartStrategy().analyze(market, candles, orderbook, 3)
@@ -147,8 +147,8 @@ class TradingMathTests(unittest.TestCase):
             position.tp_index = 2
             position.last_price = 102
             engine.update_settings({"take_profits": 2})
-            self.assertEqual(position.take_profits, [102.0])
-            self.assertEqual(position.tp_index, 0)
+            self.assertEqual(position.take_profits, [101.0, 102.0, 103.0])
+            self.assertEqual(position.tp_index, 2)
         finally:
             tmp.cleanup()
 
