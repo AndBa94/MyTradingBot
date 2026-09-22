@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from app.exchange.bybit import BybitClient
 from app.models import Position
-from app.strategy import SmartStrategy, _tp_multipliers
+from app.strategy import SmartStrategy
 from app.risk import position_size
 
 class Engine:
@@ -195,32 +195,25 @@ class Engine:
         return p
 
     def _sync_position_tps(self, p):
-        """Rebuild TP levels for an open position using the current TP setting.
-        Entry and the original risk/SL are preserved; already completed TP stages
-        are never moved backwards.
+        """Keep the original liquidity-based TP levels stable for open positions.
+        The TP setting only controls how many already-planned stages remain.
+        We never rebuild targets from a different formula after entry.
         """
         count = max(1, min(5, int(self.settings["take_profits"])))
-        original_sl = p.initial_stop_loss or p.stop_loss
-        risk = abs(p.entry - original_sl)
-        if risk <= 0:
-            return
-
-        multipliers = _tp_multipliers(count)
-        if p.side == "LONG":
-            levels = [round(p.entry + risk * r, 10) for r in multipliers]
-        else:
-            levels = [round(p.entry - risk * r, 10) for r in multipliers]
-
+        levels = list(p.take_profits)
         completed = max(0, int(p.tp_index))
+
         if completed >= len(levels):
-            # The new TP configuration has fewer stages than already completed.
-            # Do not move a target backwards. Close the remainder at the latest
-            # known market price on the next management cycle.
-            p.take_profits = [round(p.last_price or p.entry, 10)]
+            p.take_profits = [round(p.last_price or p.entry)]
             p.tp_index = 0
         else:
-            p.take_profits = levels
+            # Never move an existing target. Only reduce the number of
+            # remaining stages if the user lowered TP count.
+            remaining = levels[completed:]
+            keep = remaining[:count]
+            p.take_profits = levels[:completed] + keep
             p.tp_index = completed
+
         self.store.save_position(p)
 
     def _sync_all_open_tps(self):
