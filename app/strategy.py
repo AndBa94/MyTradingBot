@@ -70,7 +70,7 @@ def _wall_levels(levels, current, direction, max_distance_pct=0.012):
     walls = [
         (price, notional, notional / baseline)
         for price, _, notional in candidates
-        if notional >= baseline * 2.0
+        if notional >= baseline * 2.5
     ]
 
     if direction == "ABOVE":
@@ -238,6 +238,14 @@ class SmartStrategy:
         spread = max(_f(m.ask) - _f(m.bid), 0.0)
         spread_pct = spread / max(m.last, 1e-9)
 
+        # The signal is based on a completed candle, so do not chase a move that
+        # has already travelled too far before the live entry price is reached.
+        if max(
+            abs(entry_long - last.close) / entry_long,
+            abs(entry_short - last.close) / entry_short,
+        ) > 0.0045:
+            return None
+
         # Extremely wide spreads make a few-minute scalp economically fragile.
         if spread_pct > 0.0012:
             return None
@@ -266,12 +274,14 @@ class SmartStrategy:
         if support:
             dist = (entry_long - support[0]) / entry_long
             bounce = (
-                dist <= 0.006
+                dist <= 0.0045
                 and last.low <= support[0] * 1.0015
                 and last.close > support[0]
                 and bullish
+                and body >= 0.35
                 and close_loc >= 0.55
-                and volume_ratio >= 0.70
+                and trend >= 0
+                and volume_ratio >= 0.90
                 and imbalance >= 0.52
             )
             if bounce:
@@ -307,12 +317,14 @@ class SmartStrategy:
         if resistance:
             dist = (resistance[0] - entry_short) / entry_short
             bounce = (
-                dist <= 0.006
+                dist <= 0.0045
                 and last.high >= resistance[0] * 0.9985
                 and last.close < resistance[0]
                 and bearish
+                and body >= 0.35
                 and close_loc <= 0.45
-                and volume_ratio >= 0.70
+                and trend <= 0
+                and volume_ratio >= 0.90
                 and imbalance <= 0.48
             )
             if bounce:
@@ -366,7 +378,8 @@ class SmartStrategy:
             and body >= 0.45
             and close_loc >= 0.65
             and pressure_long
-            and volume_ratio >= 1.05
+            and trend >= 0
+            and volume_ratio >= 1.10
             and imbalance >= 0.50
         )
 
@@ -420,7 +433,8 @@ class SmartStrategy:
             and body >= 0.45
             and close_loc <= 0.35
             and pressure_short
-            and volume_ratio >= 1.05
+            and trend <= 0
+            and volume_ratio >= 1.10
             and imbalance <= 0.50
         )
 
