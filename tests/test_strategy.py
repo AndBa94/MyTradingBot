@@ -8,24 +8,28 @@ from app.risk import position_size
 def candles_for_bounce():
     rows = []
     for i in range(60):
-        close = 99.8 + max(0, i - 40) * 0.012
-        rows.append(Candle(i, close - 0.05, close + 0.08, close - 0.08, close, 1000))
+        close = 99.7 + max(0, i - 35) * 0.015
+        rows.append(
+            Candle(i, close - 0.04, close + 0.07, close - 0.07, close, 1000)
+        )
 
-    rows[-3] = Candle(57, 99.90, 100.05, 99.80, 99.95, 1000)
-    rows[-2] = Candle(58, 99.94, 100.08, 99.82, 100.00, 1050)
-    rows[-1] = Candle(59, 99.95, 100.30, 99.78, 100.25, 1200)
+    rows[-3] = Candle(57, 100.02, 100.12, 99.98, 100.06, 1000)
+    rows[-2] = Candle(58, 100.06, 100.18, 100.00, 100.10, 1050)
+    rows[-1] = Candle(59, 99.95, 100.30, 99.98, 100.25, 1200)
     return rows
 
 
 def candles_for_breakout():
     rows = []
     for i in range(60):
-        close = 99.85 + max(0, i - 35) * 0.015
-        rows.append(Candle(i, close - 0.05, close + 0.08, close - 0.08, close, 1000))
+        close = 99.85 + max(0, i - 45) * 0.01
+        rows.append(
+            Candle(i, close - 0.04, close + 0.07, close - 0.07, close, 1000)
+        )
 
-    rows[-3] = Candle(57, 99.95, 100.05, 99.90, 100.00, 1000)
-    rows[-2] = Candle(58, 100.00, 100.08, 99.96, 100.02, 1050)
-    rows[-1] = Candle(59, 100.03, 100.70, 100.01, 100.55, 1400)
+    rows[-3] = Candle(57, 100.30, 100.35, 100.25, 100.30, 1000)
+    rows[-2] = Candle(58, 100.35, 100.45, 100.33, 100.40, 1050)
+    rows[-1] = Candle(59, 100.45, 100.70, 100.40, 100.55, 1400)
     return rows
 
 
@@ -40,8 +44,8 @@ class StrategyTests(unittest.TestCase):
         )
         book = {
             "bids": [
-                [99.8, 8], [99.79, 2], [99.78, 2],
-                [99.77, 2], [99.76, 2], [99.70, 2],
+                [100.0, 8], [99.99, 2], [99.98, 2],
+                [99.97, 2], [99.96, 2], [99.90, 2],
             ],
             "asks": [
                 [101.0, 3], [101.1, 1], [101.2, 1],
