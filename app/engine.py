@@ -433,7 +433,7 @@ class Engine:
                 self.cooldowns[o.symbol] = now
                 self.last_action = (
                     f"AUTO {p.side} {p.symbol} | "
-                    f"conf {o.confidence * 100:.0f}%"
+                    f"score {o.score_10:.1f}/10"
                 )
 
     def open_paper(self, o, automatic=False):
