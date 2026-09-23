@@ -159,6 +159,40 @@ def _trend(candles):
     return 0
 
 
+
+def _higher_timeframe_trend(candles, bucket=3):
+    """Build a completed higher-timeframe trend from closed 5m candles."""
+    if len(candles) < 36:
+        return 0
+
+    rows = []
+    for i in range(0, len(candles) - bucket + 1, bucket):
+        chunk = candles[i:i + bucket]
+        if len(chunk) != bucket:
+            continue
+        rows.append(
+            (
+                chunk[0].open,
+                max(c.high for c in chunk),
+                min(c.low for c in chunk),
+                chunk[-1].close,
+                sum(c.volume for c in chunk),
+            )
+        )
+
+    if len(rows) < 12:
+        return 0
+
+    closes = [row[3] for row in rows[-12:]]
+    fast = sum(closes[-4:]) / 4
+    slow = sum(closes[-9:]) / 9
+
+    if fast > slow * 1.0010:
+        return 1
+    if fast < slow * 0.9990:
+        return -1
+    return 0
+
 def _market_regime(candles, atr, trend):
     """Classify the recent 5m market without using the forming candle."""
     if not candles or atr <= 0:
@@ -292,6 +326,7 @@ class SmartStrategy:
         recent_low = min(c.low for c in candles[-25:-1])
 
         trend = _trend(candles)
+        trend15 = _higher_timeframe_trend(candles)
         regime = _market_regime(candles, atr, trend)
         flow_delta = _flow_delta(previous_orderbook, imbalance)
         funding_rate = _f(m.funding_rate)
@@ -320,14 +355,18 @@ class SmartStrategy:
                 and bullish
                 and body >= 0.45
                 and close_loc >= 0.60
-                and (trend == 1 or (
-                    regime == "RANGE"
-                    and volume_ratio >= 1.15
-                    and imbalance >= 0.58
-                ))
-                and volume_ratio >= 1.00
-                and imbalance >= 0.55
-                and flow_delta >= -0.025
+                and (
+                    (trend == 1 and trend15 >= 0)
+                    or (
+                        regime == "RANGE"
+                        and trend15 == 0
+                        and volume_ratio >= 1.15
+                        and imbalance >= 0.58
+                    )
+                )
+                and volume_ratio >= 1.10
+                and imbalance >= 0.56
+                and flow_delta >= 0.005
                 and not funding_long_block
             )
             if bounce:
@@ -373,19 +412,23 @@ class SmartStrategy:
                 and bearish
                 and body >= 0.45
                 and close_loc <= 0.40
-                and (trend == -1 or (
-                    regime == "RANGE"
-                    and volume_ratio >= 1.15
-                    and imbalance <= 0.42
-                ))
-                and volume_ratio >= 1.00
-                and imbalance <= 0.45
-                and flow_delta <= 0.025
+                and (
+                    (trend == -1 and trend15 <= 0)
+                    or (
+                        regime == "RANGE"
+                        and trend15 == 0
+                        and volume_ratio >= 1.15
+                        and imbalance <= 0.42
+                    )
+                )
+                and volume_ratio >= 1.10
+                and imbalance <= 0.44
+                and flow_delta <= -0.005
                 and not funding_short_block
             )
             if bounce:
                 stop = resistance[0] + max(
-                    atr * 0.35,
+                    atr * 0.45,
                     spread * 2.0,
                     entry_short * 0.0008,
                 )
@@ -440,9 +483,10 @@ class SmartStrategy:
             and close_loc >= (0.78 if regime == "HIGH_VOL" else 0.70)
             and pressure_long
             and trend == 1
-            and volume_ratio >= (1.50 if regime == "HIGH_VOL" else 1.25)
-            and imbalance >= (0.56 if regime == "HIGH_VOL" else 0.54)
-            and flow_delta >= -0.01
+            and trend15 == 1
+            and volume_ratio >= (1.55 if regime == "HIGH_VOL" else 1.30)
+            and imbalance >= (0.57 if regime == "HIGH_VOL" else 0.55)
+            and flow_delta >= 0.005
             and not funding_long_block
             and (last.close - breakout_level) / breakout_level <= 0.006
         )
@@ -501,9 +545,10 @@ class SmartStrategy:
             and close_loc <= (0.22 if regime == "HIGH_VOL" else 0.30)
             and pressure_short
             and trend == -1
-            and volume_ratio >= (1.50 if regime == "HIGH_VOL" else 1.25)
-            and imbalance <= (0.44 if regime == "HIGH_VOL" else 0.46)
-            and flow_delta <= 0.01
+            and trend15 == -1
+            and volume_ratio >= (1.55 if regime == "HIGH_VOL" else 1.30)
+            and imbalance <= (0.43 if regime == "HIGH_VOL" else 0.45)
+            and flow_delta <= -0.005
             and not funding_short_block
             and (breakout_level - last.close) / breakout_level <= 0.006
         )
@@ -593,7 +638,8 @@ class SmartStrategy:
         reasons = [
             f"setup={setup}",
             f"regime={regime}",
-            f"trend={'UP' if trend > 0 else 'DOWN' if trend < 0 else 'FLAT'}",
+            f"trend5={'UP' if trend > 0 else 'DOWN' if trend < 0 else 'FLAT'}",
+            f"trend15={'UP' if trend15 > 0 else 'DOWN' if trend15 < 0 else 'FLAT'}",
             f"volume_x={volume_ratio:.2f}",
             f"book_imbalance={imbalance:.3f}",
             f"flow_delta={flow_delta:+.3f}",
