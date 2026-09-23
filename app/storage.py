@@ -33,7 +33,7 @@ class Store:
         if "score_10" not in position_columns:
             self.db.execute("ALTER TABLE positions ADD COLUMN score_10 REAL DEFAULT 0")
         if "score_components" not in position_columns:
-            self.db.execute("ALTER TABLE positions ADD COLUMN score_components TEXT DEFAULT '{}')
+            self.db.execute("ALTER TABLE positions ADD COLUMN score_components TEXT DEFAULT '{}')")
         self.db.commit()
 
     def add_trade(self, position, exit_price, pnl, reason, fees=0.0):
