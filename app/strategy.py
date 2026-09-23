@@ -490,7 +490,7 @@ class SmartStrategy:
             and trend15 >= 0
             and volume_ratio >= (1.55 if regime == "HIGH_VOL" else 1.30)
             and imbalance >= (0.57 if regime == "HIGH_VOL" else 0.55)
-            and flow_delta >= 0.005
+            and flow_delta >= -0.005
             and not funding_long_block
             and (last.close - breakout_level) / breakout_level <= 0.006
         )
@@ -552,7 +552,7 @@ class SmartStrategy:
             and trend15 <= 0
             and volume_ratio >= (1.55 if regime == "HIGH_VOL" else 1.30)
             and imbalance <= (0.43 if regime == "HIGH_VOL" else 0.45)
-            and flow_delta <= -0.005
+            and flow_delta <= 0.005
             and not funding_short_block
             and (breakout_level - last.close) / breakout_level <= 0.006
         )
