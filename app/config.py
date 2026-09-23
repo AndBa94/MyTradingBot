@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     max_spread_bps: float = 12
 
     max_simultaneous_positions: int = 3
+    # Keep correlated directional exposure below the total position cap.
+    max_same_direction_positions: int = 2
     default_leverage: int = 3
     default_budget: float = 100.0
 
