@@ -59,3 +59,6 @@ class Position:
     initial_stop_loss: float = 0.0
     entry_fee: float = 0.0
     fees: float = 0.0
+    setup: str = ""
+    score_10: float = 0.0
+    score_components: dict = field(default_factory=dict)
