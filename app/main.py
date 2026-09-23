@@ -72,6 +72,10 @@ async def history():
 async def stats():
     return store.statistics()
 
+@app.get("/api/self-analysis")
+async def self_analysis():
+    return store.statistics().get("self_analysis", {})
+
 @app.get("/api/settings")
 async def get_settings():
     return engine.settings
