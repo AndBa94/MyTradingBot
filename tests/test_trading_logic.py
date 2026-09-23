@@ -78,7 +78,7 @@ class TradingMathTests(unittest.TestCase):
 
         self.engine._take_profit(p, 102.0)
         self.assertAlmostEqual(p.quantity, initial * 0.50, places=10)
-        self.assertAlmostEqual(p.stop_loss, p.take_profits[1 - 1], places=10)
+        self.assertAlmostEqual(p.stop_loss, p.take_profits[1], places=10)
         self.engine._take_profit(p, 103.0)
         self.assertNotIn(p.id, self.engine.positions)
         self.assertEqual(len(self.store.all_history()), 1)
