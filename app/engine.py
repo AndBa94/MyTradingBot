@@ -37,6 +37,9 @@ class Engine:
         self.cooldowns = {}
         self.signal_confirmations = {}
         self.recent_closes = {}
+        # Circuit breaker for adverse market regimes. Runtime-only by design.
+        self.loss_streak = 0
+        self.trading_pause_until = None
         self.paper_fee_rate = float(
             getattr(s, "paper_taker_fee_rate", 0.00055)
         )
@@ -363,6 +366,20 @@ class Engine:
     def auto_enter(self):
         if not self.trading_enabled:
             return
+
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        if self.trading_pause_until:
+            if now < self.trading_pause_until:
+                remaining = int(
+                    (self.trading_pause_until - now).total_seconds()
+                )
+                self.last_action = (
+                    f"AUTO PAUSE after {self.loss_streak} losses | "
+                    f"{max(0, remaining)}s left"
+                )
+                return
+            self.loss_streak = min(self.loss_streak, 2)
+            self.trading_pause_until = None
 
         max_positions = int(self.settings["max_positions"])
 
@@ -769,6 +786,27 @@ class Engine:
 
         self.balance += net_remaining
         self._persist_balance()
+
+        # Consecutive-loss circuit breaker: stop adding risk when the market
+        # produces a cluster of failed signals.
+        if final_pnl < 0:
+            self.loss_streak += 1
+            pause_minutes = 0
+            if self.loss_streak == 3:
+                pause_minutes = 15
+            elif self.loss_streak == 4:
+                pause_minutes = 30
+            elif self.loss_streak >= 5:
+                pause_minutes = 60
+
+            if pause_minutes:
+                self.trading_pause_until = (
+                    datetime.now(timezone.utc).replace(tzinfo=None)
+                    + timedelta(minutes=pause_minutes)
+                )
+        else:
+            self.loss_streak = 0
+            self.trading_pause_until = None
 
         self.recent_closes[p.symbol] = (
             datetime.utcnow(),
