@@ -588,6 +588,76 @@ class SmartStrategy:
                     ("SHORT", "LEVEL_BREAKOUT", score, stop, targets, support, resistance)
                 )
 
+        # -------------------- MOMENTUM CONTINUATION --------------------
+        # Independent from wall/breakout triggers: trend + candle impulse +
+        # participation + order-book agreement. It is intentionally scored,
+        # not forced to pass every feature at once.
+        momentum_long = (
+            trend == 1
+            and trend15 >= 0
+            and bullish
+            and body >= 0.55
+            and close_loc >= 0.72
+            and last.close > prev.close
+            and volume_ratio >= 1.15
+            and imbalance >= 0.55
+            and flow_delta >= -0.01
+            and not funding_long_block
+        )
+        if momentum_long:
+            stop = min(
+                prev.low,
+                last.low,
+            ) - max(atr * 0.50, spread * 2.0, entry_long * 0.0009)
+            targets = _make_targets(
+                "LONG", entry_long, stop,
+                resistance[0] if resistance else recent_high,
+                recent_high,
+                atr,
+            )
+            if targets:
+                score = 0.54
+                if trend15 == 1: score += 0.06
+                if volume_ratio >= 1.40: score += 0.07
+                if imbalance >= 0.58: score += 0.06
+                if body >= 0.70: score += 0.04
+                candidates.append(
+                    ("LONG", "MOMENTUM_CONTINUATION", score, stop, targets, support, resistance)
+                )
+
+        momentum_short = (
+            trend == -1
+            and trend15 <= 0
+            and bearish
+            and body >= 0.55
+            and close_loc <= 0.28
+            and last.close < prev.close
+            and volume_ratio >= 1.15
+            and imbalance <= 0.45
+            and flow_delta <= 0.01
+            and not funding_short_block
+        )
+        if momentum_short:
+            stop = max(
+                prev.high,
+                last.high,
+            ) + max(atr * 0.50, spread * 2.0, entry_short * 0.0009)
+            targets = _make_targets(
+                "SHORT", entry_short, stop,
+                support[0] if support else recent_low,
+                recent_low,
+                atr,
+            )
+            if targets:
+                score = 0.54
+                if trend15 == -1: score += 0.06
+                if volume_ratio >= 1.40: score += 0.07
+                if imbalance <= 0.42: score += 0.06
+                if body >= 0.70: score += 0.04
+                candidates.append(
+                    ("SHORT", "MOMENTUM_CONTINUATION", score, stop, targets, support, resistance)
+                )
+
         if not candidates:
             return None
 
