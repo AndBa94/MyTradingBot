@@ -483,7 +483,7 @@ class SmartStrategy:
             and close_loc >= (0.78 if regime == "HIGH_VOL" else 0.70)
             and pressure_long
             and trend == 1
-            and trend15 == 1
+            and trend15 >= 0
             and volume_ratio >= (1.55 if regime == "HIGH_VOL" else 1.30)
             and imbalance >= (0.57 if regime == "HIGH_VOL" else 0.55)
             and flow_delta >= 0.005
@@ -545,7 +545,7 @@ class SmartStrategy:
             and close_loc <= (0.22 if regime == "HIGH_VOL" else 0.30)
             and pressure_short
             and trend == -1
-            and trend15 == -1
+            and trend15 <= 0
             and volume_ratio >= (1.55 if regime == "HIGH_VOL" else 1.30)
             and imbalance <= (0.43 if regime == "HIGH_VOL" else 0.45)
             and flow_delta <= -0.005
