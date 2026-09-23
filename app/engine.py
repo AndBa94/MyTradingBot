@@ -386,8 +386,6 @@ class Engine:
         if len(self.positions) >= max_positions:
             return
 
-        now = datetime.utcnow()
-
         for o in self.last_scan:
             if len(self.positions) >= max_positions:
                 break
@@ -449,7 +447,7 @@ class Engine:
 
         if automatic and self._entry_blocked_after_close(
             o.symbol,
-            datetime.utcnow(),
+            datetime.now(timezone.utc).replace(tzinfo=None),
         ):
             return None
 
