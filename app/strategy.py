@@ -193,32 +193,6 @@ def _higher_timeframe_trend(candles, bucket=3):
         return -1
     return 0
 
-def _aggregate_candles(candles, size=3):
-    """Build higher-timeframe candles from completed lower-timeframe candles."""
-    if size <= 1:
-        return list(candles)
-    rows = list(candles)
-    remainder = len(rows) % size
-    if remainder:
-        rows = rows[remainder:]
-    out = []
-    for i in range(0, len(rows), size):
-        chunk = rows[i:i + size]
-        if len(chunk) != size:
-            continue
-        out.append(
-            type(chunk[0])(
-                chunk[-1].timestamp,
-                chunk[0].open,
-                max(x.high for x in chunk),
-                min(x.low for x in chunk),
-                chunk[-1].close,
-                sum(x.volume for x in chunk),
-            )
-        )
-    return out
-
-
 def _market_regime(candles, atr, trend):
     """Classify the recent 5m market without using the forming candle."""
     if not candles or atr <= 0:
@@ -418,7 +392,7 @@ class SmartStrategy:
                         score += 0.06
                     if trend == 1:
                         score += 0.04
-                    if trend_15m == 1:
+                    if trend15 == 1:
                         score += 0.03
                     elif regime == "RANGE":
                         score += 0.02
