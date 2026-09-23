@@ -9,10 +9,16 @@ class Store:
         self.db = sqlite3.connect(path, check_same_thread=False)
         self.db.execute("""CREATE TABLE IF NOT EXISTS trades(
             id TEXT PRIMARY KEY,symbol TEXT,side TEXT,entry REAL,exit REAL,pnl REAL,
-            opened_at TEXT,closed_at TEXT,reason TEXT,fees REAL DEFAULT 0)""")
+            opened_at TEXT,closed_at TEXT,reason TEXT,fees REAL DEFAULT 0,\n            setup TEXT DEFAULT '',score_10 REAL DEFAULT 0,score_components TEXT DEFAULT '{}')""")
         columns = {row[1] for row in self.db.execute("PRAGMA table_info(trades)").fetchall()}
         if "fees" not in columns:
             self.db.execute("ALTER TABLE trades ADD COLUMN fees REAL DEFAULT 0")
+        if "setup" not in columns:
+            self.db.execute("ALTER TABLE trades ADD COLUMN setup TEXT DEFAULT ''")
+        if "score_10" not in columns:
+            self.db.execute("ALTER TABLE trades ADD COLUMN score_10 REAL DEFAULT 0")
+        if "score_components" not in columns:
+            self.db.execute("ALTER TABLE trades ADD COLUMN score_components TEXT DEFAULT '{}'")
         self.db.execute("""CREATE TABLE IF NOT EXISTS settings(
             key TEXT PRIMARY KEY,value TEXT NOT NULL)""")
         self.db.execute("""CREATE TABLE IF NOT EXISTS positions(
@@ -26,12 +32,16 @@ class Store:
     def add_trade(self, position, exit_price, pnl, reason, fees=0.0):
         self.db.execute(
             """INSERT OR REPLACE INTO trades
-               (id,symbol,side,entry,exit,pnl,opened_at,closed_at,reason,fees)
-               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+               (id,symbol,side,entry,exit,pnl,opened_at,closed_at,reason,fees,
+                setup,score_10,score_components)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 position.id, position.symbol, position.side, position.entry,
                 exit_price, pnl, position.opened_at.isoformat(),
-                datetime.now(timezone.utc).replace(tzinfo=None).isoformat(), reason, fees
+                datetime.now(timezone.utc).replace(tzinfo=None).isoformat(), reason, fees,
+                getattr(position, "setup", ""),
+                float(getattr(position, "score_10", 0.0)),
+                json.dumps(getattr(position, "score_components", {}) or {}),
             )
         )
         self.db.commit()
@@ -85,7 +95,9 @@ class Store:
             (p.id, p.symbol, p.side, p.entry, p.quantity, p.stop_loss,
              json.dumps(p.take_profits), p.opened_at.isoformat(), p.leverage, p.pnl,
              p.status, p.initial_quantity, p.realized_pnl, p.tp_index, p.last_price,
-             p.initial_stop_loss, p.entry_fee, p.fees)
+             p.initial_stop_loss, p.entry_fee, p.fees, getattr(p, "setup", ""),
+             float(getattr(p, "score_10", 0.0)),
+             json.dumps(getattr(p, "score_components", {}) or {}))
         )
         self.db.commit()
 
@@ -96,12 +108,14 @@ class Store:
         for r in c.fetchall():
             (pid, symbol, side, entry, quantity, stop_loss, take_profits, opened_at, leverage,
              pnl, status, initial_quantity, realized_pnl, tp_index, last_price, initial_stop_loss,
-             entry_fee, fees) = r
+             entry_fee, fees, setup, score_10, score_components) = r
             out[pid] = Position(
                 pid, symbol, side, float(entry), float(quantity), float(stop_loss),
                 json.loads(take_profits), datetime.fromisoformat(opened_at), int(leverage),
                 float(pnl), status, float(initial_quantity), float(realized_pnl), int(tp_index),
-                float(last_price), float(initial_stop_loss), float(entry_fee), float(fees)
+                float(last_price), float(initial_stop_loss), float(entry_fee), float(fees),
+                str(setup or ""), float(score_10 or 0.0),
+                json.loads(score_components or "{}")
             )
         return out
 
