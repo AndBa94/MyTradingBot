@@ -302,18 +302,18 @@ class Engine:
             self.signal_confirmations.pop(key, None)
             return False
 
-        favorable_move = (
+        price_change = (
             float(o.entry) - baseline_entry
             if o.side == "LONG"
             else baseline_entry - float(o.entry)
         )
 
-        # The signal must actually improve between scans. A repeated static
-        # order-book snapshot is not confirmation. We only need a small move
-        # (about 0.08R), so the confirmation does not chase a large breakout.
-        min_confirmation_move = max(
-            risk * 0.08,
-            baseline_entry * 0.00015,
+        # Confirmation proves persistence, not a required favorable price move.
+        # The previous minimum move made valid scalps disappear when price
+        # remained near the trigger for two scans.
+        max_adverse_move = max(
+            risk * 0.15,
+            baseline_entry * 0.00035,
         )
         max_chase_move = max(
             risk * 0.45,
@@ -324,8 +324,8 @@ class Engine:
             float(o.confidence) >= float(previous["confidence"]) - 0.03
         )
         confirmed = (
-            favorable_move >= min_confirmation_move
-            and favorable_move <= max_chase_move
+            price_change >= -max_adverse_move
+            and price_change <= max_chase_move
             and confidence_holds
             and microstructure_holds
         )
