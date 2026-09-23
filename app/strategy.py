@@ -451,7 +451,7 @@ class SmartStrategy:
                         score += 0.06
                     if trend == -1:
                         score += 0.04
-                    if trend_15m == -1:
+                    if trend15 == -1:
                         score += 0.03
                     elif regime == "RANGE":
                         score += 0.02
