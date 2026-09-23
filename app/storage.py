@@ -133,8 +133,8 @@ class Store:
         self.db.execute(
             """INSERT OR REPLACE INTO positions
                (id,symbol,side,entry,quantity,stop_loss,take_profits,opened_at,leverage,
-                pnl,status,initial_quantity,realized_pnl,tp_index,last_price,initial_stop_loss,entry_fee,fees)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                pnl,status,initial_quantity,realized_pnl,tp_index,last_price,initial_stop_loss,entry_fee,fees,setup,score_10,score_components)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (p.id, p.symbol, p.side, p.entry, p.quantity, p.stop_loss,
              json.dumps(p.take_profits), p.opened_at.isoformat(), p.leverage, p.pnl,
              p.status, p.initial_quantity, p.realized_pnl, p.tp_index, p.last_price,
