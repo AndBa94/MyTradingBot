@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     # Automatic entries require a stronger setup score after the anti-repaint,
     # trend and signal-persistence filters are applied.
     auto_min_confidence: float = 0.75
+    # Explainable 0-10 composite score required for automatic PAPER entries.
+    auto_min_score_10: float = 7.5
     auto_cooldown_seconds: int = 90
     max_hold_minutes: int = 30
 
