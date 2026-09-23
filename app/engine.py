@@ -392,6 +392,10 @@ class Engine:
 
             if o.confidence < float(self.s.auto_min_confidence):
                 continue
+            if float(getattr(o, "score_10", 0.0)) < float(
+                getattr(self.s, "auto_min_score_10", 7.5)
+            ):
+                continue
 
             if not self._signal_confirmed(o, now):
                 continue
@@ -527,6 +531,10 @@ class Engine:
             fees=entry_fee,
             realized_pnl=-entry_fee,
         )
+
+        p.setup = str(getattr(o, "setup", ""))
+        p.score_10 = float(getattr(o, "score_10", 0.0))
+        p.score_components = dict(getattr(o, "score_components", {}) or {})
 
         self.balance -= entry_fee
         self._persist_balance()
@@ -822,6 +830,7 @@ class Engine:
         self.last_action = (
             f"CLOSE {p.symbol} | {reason} | "
             f"{final_pnl:+.2f} USDT | "
+            f"score {getattr(p, "score_10", 0.0):.1f}/10 | "
             f"fee {p.fees:.4f}"
         )
 
