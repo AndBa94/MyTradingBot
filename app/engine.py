@@ -231,6 +231,25 @@ class Engine:
 
         return same_direction >= 2
 
+    def _market_context_blocked(self, o):
+        """Block alt entries when BTC and ETH are moving together against the setup."""
+        if o.symbol in {"BTCUSDT", "ETHUSDT"}:
+            return False
+
+        markets = {m.symbol: m for m in self.latest_markets}
+        btc = markets.get("BTCUSDT")
+        eth = markets.get("ETHUSDT")
+        if not btc or not eth:
+            return False
+
+        btc_change = float(btc.change_24h)
+        eth_change = float(eth.change_24h)
+
+        # Require both majors to agree before applying the broad-market filter.
+        if o.side == "LONG":
+            return btc_change <= -1.0 and eth_change <= -1.0
+        return btc_change >= 1.0 and eth_change >= 1.0
+
     def _signal_confirmed(self, o, now):
         key = (o.symbol, o.side, o.setup)
         stale = [
@@ -368,13 +387,17 @@ class Engine:
             if self._directional_cluster_blocked(o):
                 continue
 
+            if self._market_context_blocked(o):
+                continue
+
             if o.symbol in self._open_symbols():
                 continue
 
             # Limit directional concentration. Several altcoins can move
-            # together, so five simultaneous SHORTs are not five independent
-            # bets. Keep at most three open positions in the same direction.
-            if self._open_side_count(o.side) >= 3:
+            # together, so multiple positions are not independent bets.
+            if self._open_side_count(o.side) >= int(
+                getattr(self.s, "max_same_direction_positions", 2)
+            ):
                 continue
 
             last_entry = self.cooldowns.get(o.symbol)
@@ -413,7 +436,9 @@ class Engine:
         ):
             return None
 
-        if self._open_side_count(o.side) >= 3:
+        if self._open_side_count(o.side) >= int(
+            getattr(self.s, "max_same_direction_positions", 2)
+        ):
             return None
 
         leverage = int(self.settings["leverage"])
@@ -640,7 +665,16 @@ class Engine:
             )
             return
 
-        qty_to_close = p.quantity / remaining_tps
+        if remaining_tps >= 3:
+            # 25% / 25% / 50% for a three-target runner.
+            qty_to_close = p.initial_quantity * 0.25
+        elif remaining_tps == 2:
+            # Once TP1 is gone, split the remainder evenly enough to preserve
+            # a meaningful runner without overcomplicating the state model.
+            qty_to_close = p.initial_quantity * 0.25
+        else:
+            qty_to_close = p.quantity
+
         qty_to_close = min(
             qty_to_close,
             p.quantity,
@@ -672,8 +706,17 @@ class Engine:
             + self._net_unrealized(p, price)
         )
 
+        # Protect a portion of the first winner while leaving the
+        # runner room. With a 3+ TP plan the first exit is 25%, the second
+        # 25%, and the final target carries the remaining 50%.
         if p.tp_index == 1:
-            p.stop_loss = p.entry
+            initial_risk = abs(
+                p.entry - p.initial_stop_loss
+            )
+            if p.side == "LONG":
+                p.stop_loss = p.entry + initial_risk * 0.10
+            else:
+                p.stop_loss = p.entry - initial_risk * 0.10
         elif p.tp_index > 1:
             prev_tp = p.take_profits[
                 p.tp_index - 1
