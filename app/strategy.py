@@ -366,7 +366,7 @@ class SmartStrategy:
                 )
                 and volume_ratio >= 1.10
                 and imbalance >= 0.56
-                and flow_delta >= 0.005
+                and flow_delta >= -0.005
                 and not funding_long_block
             )
             if bounce:
@@ -423,7 +423,7 @@ class SmartStrategy:
                 )
                 and volume_ratio >= 1.10
                 and imbalance <= 0.44
-                and flow_delta <= -0.005
+                and flow_delta <= 0.005
                 and not funding_short_block
             )
             if bounce:
