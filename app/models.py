@@ -35,6 +35,9 @@ class Opportunity:
     stop_loss: float
     take_profits: list[float]
     reasons: list[str] = field(default_factory=list)
+    score_10: float = 0.0
+    score_components: dict = field(default_factory=dict)
+    decision: str = "WAIT"
 
 @dataclass
 class Position:
