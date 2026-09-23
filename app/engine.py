@@ -830,7 +830,7 @@ class Engine:
         self.last_action = (
             f"CLOSE {p.symbol} | {reason} | "
             f"{final_pnl:+.2f} USDT | "
-            f"score {getattr(p, "score_10", 0.0):.1f}/10 | "
+            f"score {getattr(p, 'score_10', 0.0):.1f}/10 | "
             f"fee {p.fees:.4f}"
         )
 
