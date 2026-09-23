@@ -130,6 +130,20 @@ def _previous_wall(previous_orderbook, current, direction):
     return walls[0] if walls else None
 
 
+def _previous_imbalance(previous_orderbook):
+    if not previous_orderbook:
+        return None
+    _, _, imbalance = _book_stats(previous_orderbook)
+    return imbalance
+
+
+def _flow_delta(previous_orderbook, current_imbalance):
+    previous = _previous_imbalance(previous_orderbook)
+    if previous is None:
+        return 0.0
+    return current_imbalance - previous
+
+
 def _trend(candles):
     closes = [c.close for c in candles[-24:]]
     if len(closes) < 12:
@@ -181,9 +195,9 @@ def _make_targets(side, entry, stop, first_level, second_level, atr):
 
     if side == "LONG":
         candidates = [
-            entry + max(risk * 1.25, min_step),
-            entry + max(risk * 2.0, min_step * 1.5),
-            entry + max(risk * 2.8, min_step * 2.0),
+            entry + max(risk * 1.40, min_step),
+            entry + max(risk * 2.40, min_step * 1.5),
+            entry + max(risk * 3.50, min_step * 2.0),
         ]
         if first_level and first_level > entry:
             candidates[0] = min(candidates[0], first_level * 0.999)
@@ -198,9 +212,9 @@ def _make_targets(side, entry, stop, first_level, second_level, atr):
         return targets
 
     candidates = [
-        entry - max(risk * 1.25, min_step),
-        entry - max(risk * 2.0, min_step * 1.5),
-        entry - max(risk * 2.8, min_step * 2.0),
+        entry - max(risk * 1.40, min_step),
+        entry - max(risk * 2.40, min_step * 1.5),
+        entry - max(risk * 3.50, min_step * 2.0),
     ]
     if first_level and first_level < entry:
         candidates[0] = max(candidates[0], first_level * 1.001)
@@ -279,6 +293,14 @@ class SmartStrategy:
 
         trend = _trend(candles)
         regime = _market_regime(candles, atr, trend)
+        flow_delta = _flow_delta(previous_orderbook, imbalance)
+        funding_rate = _f(m.funding_rate)
+
+        # Funding is a secondary crowding filter, never a standalone signal.
+        # Avoid opening into unusually crowded positioning when the order-flow
+        # is already marginal.
+        funding_long_block = funding_rate >= 0.0008
+        funding_short_block = funding_rate <= -0.0008
         body = _body_strength(last)
         close_loc = _close_location(last)
         bullish = last.close > last.open
@@ -305,6 +327,8 @@ class SmartStrategy:
                 ))
                 and volume_ratio >= 1.00
                 and imbalance >= 0.55
+                and flow_delta >= -0.025
+                and not funding_long_block
             )
             if bounce:
                 stop = support[0] - max(
@@ -333,6 +357,8 @@ class SmartStrategy:
                         score += 0.02
                     if support[2] >= 3:
                         score += 0.05
+                    if flow_delta >= 0.02:
+                        score += 0.04
                     candidates.append(
                         ("LONG", "WALL_BOUNCE", score, stop, targets, support, resistance)
                     )
@@ -354,6 +380,8 @@ class SmartStrategy:
                 ))
                 and volume_ratio >= 1.00
                 and imbalance <= 0.45
+                and flow_delta <= 0.025
+                and not funding_short_block
             )
             if bounce:
                 stop = resistance[0] + max(
@@ -382,6 +410,8 @@ class SmartStrategy:
                         score += 0.02
                     if resistance[2] >= 3:
                         score += 0.05
+                    if flow_delta <= -0.02:
+                        score += 0.04
                     candidates.append(
                         ("SHORT", "WALL_REJECTION", score, stop, targets, support, resistance)
                     )
@@ -412,7 +442,9 @@ class SmartStrategy:
             and trend == 1
             and volume_ratio >= (1.50 if regime == "HIGH_VOL" else 1.25)
             and imbalance >= (0.56 if regime == "HIGH_VOL" else 0.54)
-            and (last.close - breakout_level) / breakout_level <= 0.006
+            and flow_delta >= -0.01
+            and not funding_long_block
+            and (last.close - breakout_level) / breakout_level <= 0.006)
         )
 
         if long_break:
@@ -438,6 +470,8 @@ class SmartStrategy:
                 if prior_resistance:
                     score += 0.05
                 if trend >= 0:
+                    score += 0.04
+                if flow_delta >= 0.02:
                     score += 0.04
                 candidates.append(
                     ("LONG", "LEVEL_BREAKOUT", score, stop, targets, support, resistance)
@@ -469,7 +503,9 @@ class SmartStrategy:
             and trend == -1
             and volume_ratio >= (1.50 if regime == "HIGH_VOL" else 1.25)
             and imbalance <= (0.44 if regime == "HIGH_VOL" else 0.46)
-            and (breakout_level - last.close) / breakout_level <= 0.006
+            and flow_delta <= 0.01
+            and not funding_short_block
+            and (breakout_level - last.close) / breakout_level <= 0.006)
         )
 
         if short_break:
@@ -495,6 +531,8 @@ class SmartStrategy:
                 if prior_support:
                     score += 0.05
                 if trend <= 0:
+                    score += 0.04
+                if flow_delta <= -0.02:
                     score += 0.04
                 candidates.append(
                     ("SHORT", "LEVEL_BREAKOUT", score, stop, targets, support, resistance)
@@ -538,7 +576,8 @@ class SmartStrategy:
         # A previous version could cap TP1 at a nearby level and accidentally
         # create a sub-1R first target, which is unfavorable for a fast scalp.
         # 1.20R leaves room for fees/slippage while still allowing frequent
-        # partial exits.
+        # partial exits. The target curve itself is wider (1.4R / 2.4R / 3.5R)
+        # so the runner has enough distance to matter.
         if first_r < 1.20:
             return None
 
@@ -557,6 +596,8 @@ class SmartStrategy:
             f"trend={'UP' if trend > 0 else 'DOWN' if trend < 0 else 'FLAT'}",
             f"volume_x={volume_ratio:.2f}",
             f"book_imbalance={imbalance:.3f}",
+            f"flow_delta={flow_delta:+.3f}",
+            f"funding={funding_rate:+.5f}",
             f"spread_bps={m.spread_bps:.2f}",
             f"atr_pct={atr / m.last * 100:.3f}",
             f"risk_pct={risk / entry * 100:.3f}",
