@@ -517,7 +517,7 @@ class Engine:
             q,
             o.stop_loss,
             tps,
-            datetime.utcnow(),
+            datetime.now(timezone.utc).replace(tzinfo=None),
             leverage,
             pnl=-entry_fee,
             initial_quantity=q,
@@ -653,7 +653,7 @@ class Engine:
                     if p.id not in self.positions:
                         continue
 
-            age = datetime.utcnow() - p.opened_at
+            age = datetime.now(timezone.utc).replace(tzinfo=None) - p.opened_at
 
             if age >= timedelta(
                 minutes=self.s.max_hold_minutes
