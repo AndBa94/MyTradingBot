@@ -191,5 +191,26 @@ class StrategyTests(unittest.TestCase):
         self.assertLess(q, q_without_slippage)
 
 
+    def test_short_branch_executes_without_missing_trend_variable(self):
+        rows = candles_for_bounce()
+        rows[-1] = Candle(59, 100.25, 100.30, 99.90, 100.00, 1300)
+        m = MarketSnapshot(
+            "XRPUSDT", 100.00, 99.99, 100.01,
+            10_000_000, 1.0, 1_000_000, 0, 0, 2.0,
+        )
+        book = {
+            "bids": [
+                [99.0, 1], [98.9, 1], [98.8, 1],
+                [98.7, 1], [98.6, 1],
+            ],
+            "asks": [
+                [100.2, 8], [100.19, 2], [100.18, 2],
+                [100.17, 2], [100.16, 2],
+            ],
+        }
+        result = self.strategy.analyze(m, rows, book)
+        self.assertTrue(result is None or result.side in {"LONG", "SHORT"})
+
+
 if __name__ == "__main__":
     unittest.main()
