@@ -444,7 +444,7 @@ class SmartStrategy:
             and imbalance >= (0.56 if regime == "HIGH_VOL" else 0.54)
             and flow_delta >= -0.01
             and not funding_long_block
-            and (last.close - breakout_level) / breakout_level <= 0.006)
+            and (last.close - breakout_level) / breakout_level <= 0.006
         )
 
         if long_break:
@@ -505,7 +505,7 @@ class SmartStrategy:
             and imbalance <= (0.44 if regime == "HIGH_VOL" else 0.46)
             and flow_delta <= 0.01
             and not funding_short_block
-            and (breakout_level - last.close) / breakout_level <= 0.006)
+            and (breakout_level - last.close) / breakout_level <= 0.006
         )
 
         if short_break:
