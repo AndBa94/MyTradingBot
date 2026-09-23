@@ -807,7 +807,7 @@ class Engine:
             self.trading_pause_until = None
 
         self.recent_closes[p.symbol] = (
-            datetime.utcnow(),
+            datetime.now(timezone.utc).replace(tzinfo=None),
             p.side,
             reason,
         )
