@@ -71,11 +71,14 @@ class TradingMathTests(unittest.TestCase):
         p = self.engine.open_paper(opportunity())
         initial = p.initial_quantity
         self.engine._take_profit(p, 101.0)
-        self.assertAlmostEqual(p.quantity, initial * 2 / 3, places=10)
+        # New runner allocation: 25% at TP1, 25% at TP2, 50% at TP3.
+        self.assertAlmostEqual(p.quantity, initial * 0.75, places=10)
+        self.assertGreater(p.stop_loss, p.entry)
         self.assertAlmostEqual(self.engine.balance, 100.0 + p.realized_pnl, places=10)
 
         self.engine._take_profit(p, 102.0)
-        self.assertAlmostEqual(p.quantity, initial / 3, places=10)
+        self.assertAlmostEqual(p.quantity, initial * 0.50, places=10)
+        self.assertAlmostEqual(p.stop_loss, p.take_profits[1 - 1], places=10)
         self.engine._take_profit(p, 103.0)
         self.assertNotIn(p.id, self.engine.positions)
         self.assertEqual(len(self.store.all_history()), 1)
