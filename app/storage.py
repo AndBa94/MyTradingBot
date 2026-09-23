@@ -27,6 +27,13 @@ class Store:
             pnl REAL,status TEXT,initial_quantity REAL,realized_pnl REAL,
             tp_index INTEGER,last_price REAL,initial_stop_loss REAL,
             entry_fee REAL,fees REAL)""")
+        position_columns = {row[1] for row in self.db.execute("PRAGMA table_info(positions)").fetchall()}
+        if "setup" not in position_columns:
+            self.db.execute("ALTER TABLE positions ADD COLUMN setup TEXT DEFAULT ''")
+        if "score_10" not in position_columns:
+            self.db.execute("ALTER TABLE positions ADD COLUMN score_10 REAL DEFAULT 0")
+        if "score_components" not in position_columns:
+            self.db.execute("ALTER TABLE positions ADD COLUMN score_components TEXT DEFAULT '{}')
         self.db.commit()
 
     def add_trade(self, position, exit_price, pnl, reason, fees=0.0):
