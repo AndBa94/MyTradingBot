@@ -79,6 +79,40 @@ class Store:
             peak = max(peak, curve)
             max_drawdown = max(max_drawdown, peak - curve)
         profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else None
+        by_setup = {}
+        for row in rows:
+            setup = str(row.get("setup") or "UNKNOWN")
+            bucket = by_setup.setdefault(setup, {"trades": 0, "wins": 0, "losses": 0, "net_pnl": 0.0})
+            bucket["trades"] += 1
+            bucket["net_pnl"] += float(row["pnl"])
+            if float(row["pnl"]) > 0:
+                bucket["wins"] += 1
+            elif float(row["pnl"]) < 0:
+                bucket["losses"] += 1
+        for bucket in by_setup.values():
+            bucket["win_rate"] = (
+                bucket["wins"] / bucket["trades"] * 100
+                if bucket["trades"] else 0.0
+            )
+
+        score_bands = {}
+        for row in rows:
+            score = float(row.get("score_10") or 0.0)
+            band = "7.5-8.0" if score < 8.0 else "8.0-8.5" if score < 8.5 else "8.5-9.0" if score < 9.0 else "9.0-10"
+            b = score_bands.setdefault(band, {"trades": 0, "wins": 0, "net_pnl": 0.0})
+            b["trades"] += 1
+            b["net_pnl"] += float(row["pnl"])
+            if float(row["pnl"]) > 0:
+                b["wins"] += 1
+        for band in score_bands.values():
+            band["win_rate"] = band["wins"] / band["trades"] * 100 if band["trades"] else 0.0
+
+        self_analysis = {
+            "by_setup": by_setup,
+            "by_score": score_bands,
+            "sample_warning": "Need a larger out-of-sample sample before changing thresholds automatically.",
+        }
+
         return {
             "trades": len(pnls),
             "wins": len(wins),
@@ -92,6 +126,7 @@ class Store:
             "net_pnl": sum(pnls),
             "max_drawdown": max_drawdown,
             "total_fees": sum(float(x.get("fees") or 0.0) for x in rows),
+            "self_analysis": self_analysis,
         }
 
     def save_position(self, p):
