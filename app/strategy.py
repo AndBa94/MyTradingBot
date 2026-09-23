@@ -1,6 +1,7 @@
 from math import isfinite
 from statistics import median
 from app.models import Opportunity
+from app.scoring import evaluate_opportunity
 
 
 def _f(value, default=0.0):
@@ -638,7 +639,8 @@ class SmartStrategy:
         if final_move <= round_trip_cost * 1.60:
             return None
 
-        confidence = min(0.92, max(0.50, confidence))
+        setup_confidence = min(0.92, max(0.50, confidence))
+        confidence = setup_confidence
         reasons = [
             f"setup={setup}",
             f"regime={regime}",
@@ -666,7 +668,7 @@ class SmartStrategy:
         if prior_support:
             reasons.append(f"prev_bid_wall={prior_support[0]:.8g}")
 
-        return Opportunity(
+        opportunity = Opportunity(
             m.symbol,
             side,
             "MICROSTRUCTURE",
@@ -678,3 +680,21 @@ class SmartStrategy:
             tp,
             reasons,
         )
+
+        score_10, components = evaluate_opportunity(opportunity)
+        opportunity.score_10 = score_10
+        opportunity.score_components = components
+        opportunity.confidence = score_10 / 10.0
+        opportunity.decision = "ENTER" if score_10 >= 7.5 else "WAIT"
+        opportunity.reasons.extend([
+            f"setup_confidence={setup_confidence:.3f}",
+            f"score_10={score_10:.2f}",
+            f"trend_score={components['trend']:.1f}",
+            f"volume_score={components['volume']:.1f}",
+            f"order_book_score={components['order_book']:.1f}",
+            f"momentum_score={components['momentum']:.1f}",
+            f"volatility_score={components['volatility']:.1f}",
+            f"risk_reward_score={components['risk_reward']:.1f}",
+            f"cost_score={components['cost']:.1f}",
+        ])
+        return opportunity
