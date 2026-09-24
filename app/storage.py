@@ -45,12 +45,23 @@ class Store:
 
     @staticmethod
     def _entry_forensics(position):
-        risk = abs(float(position.entry) - float(position.stop_loss))
-        first_tp = float(position.take_profits[0]) if position.take_profits else None
-        final_tp = float(position.take_profits[-1]) if position.take_profits else None
+        stop_loss = getattr(position, "stop_loss", None)
+        take_profits = list(getattr(position, "take_profits", []) or [])
+        if stop_loss is None:
+            return {
+                "price": float(position.entry),
+                "risk_price": None,
+                "risk_pct": None,
+                "tp1_r": None,
+                "final_r": None,
+                "leverage": int(getattr(position, "leverage", 1)),
+            }
+        risk = abs(float(position.entry) - float(stop_loss))
+        first_tp = float(take_profits[0]) if take_profits else None
+        final_tp = float(take_profits[-1]) if take_profits else None
         return {
             "price": float(position.entry),
-            "stop_loss": float(position.stop_loss),
+            "stop_loss": float(stop_loss),
             "first_tp": first_tp,
             "final_tp": final_tp,
             "risk_price": risk,
