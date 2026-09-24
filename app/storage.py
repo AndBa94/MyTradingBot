@@ -10,7 +10,8 @@ class Store:
         self.db.execute("""CREATE TABLE IF NOT EXISTS trades(
             id TEXT PRIMARY KEY,symbol TEXT,side TEXT,entry REAL,exit REAL,pnl REAL,
             opened_at TEXT,closed_at TEXT,reason TEXT,fees REAL DEFAULT 0,
-            setup TEXT DEFAULT '',score_10 REAL DEFAULT 0,score_components TEXT DEFAULT '{}')""")
+            setup TEXT DEFAULT '',score_10 REAL DEFAULT 0,score_components TEXT DEFAULT '{}',
+            forensic TEXT DEFAULT '{}')""")
         columns = {row[1] for row in self.db.execute("PRAGMA table_info(trades)").fetchall()}
         if "fees" not in columns:
             self.db.execute("ALTER TABLE trades ADD COLUMN fees REAL DEFAULT 0")
@@ -20,6 +21,8 @@ class Store:
             self.db.execute("ALTER TABLE trades ADD COLUMN score_10 REAL DEFAULT 0")
         if "score_components" not in columns:
             self.db.execute("ALTER TABLE trades ADD COLUMN score_components TEXT DEFAULT '{}'")
+        if "forensic" not in columns:
+            self.db.execute("ALTER TABLE trades ADD COLUMN forensic TEXT DEFAULT '{}'")
         self.db.execute("""CREATE TABLE IF NOT EXISTS settings(
             key TEXT PRIMARY KEY,value TEXT NOT NULL)""")
         self.db.execute("""CREATE TABLE IF NOT EXISTS positions(
@@ -27,7 +30,8 @@ class Store:
             stop_loss REAL,take_profits TEXT,opened_at TEXT,leverage INTEGER,
             pnl REAL,status TEXT,initial_quantity REAL,realized_pnl REAL,
             tp_index INTEGER,last_price REAL,initial_stop_loss REAL,
-            entry_fee REAL,fees REAL)""")
+            entry_fee REAL,fees REAL,setup TEXT DEFAULT '',score_10 REAL DEFAULT 0,
+            score_components TEXT DEFAULT '{}',forensic TEXT DEFAULT '{}')""")
         position_columns = {row[1] for row in self.db.execute("PRAGMA table_info(positions)").fetchall()}
         if "setup" not in position_columns:
             self.db.execute("ALTER TABLE positions ADD COLUMN setup TEXT DEFAULT ''")
@@ -35,21 +39,32 @@ class Store:
             self.db.execute("ALTER TABLE positions ADD COLUMN score_10 REAL DEFAULT 0")
         if "score_components" not in position_columns:
             self.db.execute("ALTER TABLE positions ADD COLUMN score_components TEXT DEFAULT '{}'")
+        if "forensic" not in position_columns:
+            self.db.execute("ALTER TABLE positions ADD COLUMN forensic TEXT DEFAULT '{}'")
         self.db.commit()
 
     def add_trade(self, position, exit_price, pnl, reason, fees=0.0):
+        forensic = dict(getattr(position, "forensic", {}) or {})
+        forensic["exit"] = {
+            "price": float(exit_price),
+            "reason": str(reason),
+            "pnl": float(pnl),
+            "fees_total": float(fees),
+            "closed_at": datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
+        }
         self.db.execute(
             """INSERT OR REPLACE INTO trades
                (id,symbol,side,entry,exit,pnl,opened_at,closed_at,reason,fees,
-                setup,score_10,score_components)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                setup,score_10,score_components,forensic)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 position.id, position.symbol, position.side, position.entry,
                 exit_price, pnl, position.opened_at.isoformat(),
-                datetime.now(timezone.utc).replace(tzinfo=None).isoformat(), reason, fees,
+                forensic["exit"]["closed_at"], reason, fees,
                 getattr(position, "setup", ""),
                 float(getattr(position, "score_10", 0.0)),
                 json.dumps(getattr(position, "score_components", {}) or {}),
+                json.dumps(forensic),
             )
         )
         self.db.commit()
@@ -79,6 +94,7 @@ class Store:
             peak = max(peak, curve)
             max_drawdown = max(max_drawdown, peak - curve)
         profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else None
+
         by_setup = {}
         for row in rows:
             setup = str(row.get("setup") or "UNKNOWN")
@@ -90,10 +106,7 @@ class Store:
             elif float(row["pnl"]) < 0:
                 bucket["losses"] += 1
         for bucket in by_setup.values():
-            bucket["win_rate"] = (
-                bucket["wins"] / bucket["trades"] * 100
-                if bucket["trades"] else 0.0
-            )
+            bucket["win_rate"] = bucket["wins"] / bucket["trades"] * 100 if bucket["trades"] else 0.0
 
         score_bands = {}
         for row in rows:
@@ -107,9 +120,28 @@ class Store:
         for band in score_bands.values():
             band["win_rate"] = band["wins"] / band["trades"] * 100 if band["trades"] else 0.0
 
+        reasons = {}
+        for row in rows:
+            try:
+                forensic = json.loads(row.get("forensic") or "{}")
+            except Exception:
+                forensic = {}
+            exit_data = forensic.get("exit", {})
+            reason = str(exit_data.get("reason") or row.get("reason") or "UNKNOWN")
+            b = reasons.setdefault(reason, {"trades": 0, "wins": 0, "losses": 0, "net_pnl": 0.0})
+            b["trades"] += 1
+            b["net_pnl"] += float(row["pnl"])
+            if float(row["pnl"]) > 0:
+                b["wins"] += 1
+            elif float(row["pnl"]) < 0:
+                b["losses"] += 1
+        for b in reasons.values():
+            b["win_rate"] = b["wins"] / b["trades"] * 100 if b["trades"] else 0.0
+
         self_analysis = {
             "by_setup": by_setup,
             "by_score": score_bands,
+            "by_exit_reason": reasons,
             "sample_warning": "Need a larger out-of-sample sample before changing thresholds automatically.",
         }
 
@@ -133,14 +165,16 @@ class Store:
         self.db.execute(
             """INSERT OR REPLACE INTO positions
                (id,symbol,side,entry,quantity,stop_loss,take_profits,opened_at,leverage,
-                pnl,status,initial_quantity,realized_pnl,tp_index,last_price,initial_stop_loss,entry_fee,fees,setup,score_10,score_components)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                pnl,status,initial_quantity,realized_pnl,tp_index,last_price,initial_stop_loss,
+                entry_fee,fees,setup,score_10,score_components,forensic)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (p.id, p.symbol, p.side, p.entry, p.quantity, p.stop_loss,
              json.dumps(p.take_profits), p.opened_at.isoformat(), p.leverage, p.pnl,
              p.status, p.initial_quantity, p.realized_pnl, p.tp_index, p.last_price,
              p.initial_stop_loss, p.entry_fee, p.fees, getattr(p, "setup", ""),
              float(getattr(p, "score_10", 0.0)),
-             json.dumps(getattr(p, "score_components", {}) or {}))
+             json.dumps(getattr(p, "score_components", {}) or {}),
+             json.dumps(getattr(p, "forensic", {}) or {}))
         )
         self.db.commit()
 
@@ -151,14 +185,14 @@ class Store:
         for r in c.fetchall():
             (pid, symbol, side, entry, quantity, stop_loss, take_profits, opened_at, leverage,
              pnl, status, initial_quantity, realized_pnl, tp_index, last_price, initial_stop_loss,
-             entry_fee, fees, setup, score_10, score_components) = r
+             entry_fee, fees, setup, score_10, score_components, forensic) = r
             out[pid] = Position(
                 pid, symbol, side, float(entry), float(quantity), float(stop_loss),
                 json.loads(take_profits), datetime.fromisoformat(opened_at), int(leverage),
                 float(pnl), status, float(initial_quantity), float(realized_pnl), int(tp_index),
                 float(last_price), float(initial_stop_loss), float(entry_fee), float(fees),
                 str(setup or ""), float(score_10 or 0.0),
-                json.loads(score_components or "{}")
+                json.loads(score_components or "{}"), json.loads(forensic or "{}")
             )
         return out
 
@@ -171,7 +205,6 @@ class Store:
         self.db.commit()
 
     def get_settings(self):
-
         c = self.db.execute("SELECT key,value FROM settings")
         out = {}
         for key, value in c.fetchall():
