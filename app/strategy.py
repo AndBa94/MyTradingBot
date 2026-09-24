@@ -1,23 +1,57 @@
 from math import isfinite
-from statistics import median
+from statistics import mean, median
 from app.models import Opportunity
-from app.scoring import evaluate_opportunity
 
 
-def _f(value, default=0.0):
+def _f(v, default=0.0):
     try:
-        x = float(value)
+        x = float(v)
         return x if isfinite(x) else default
     except (TypeError, ValueError):
         return default
+
+
+def _ema(values, period):
+    if len(values) < period:
+        return None
+    k = 2.0 / (period + 1.0)
+    e = mean(values[:period])
+    for v in values[period:]:
+        e = v * k + e * (1.0 - k)
+    return e
+
+
+def _rsi(values, period=14):
+    if len(values) < period + 1:
+        return None
+    gains, losses = [], []
+    for a, b in zip(values[-period - 1:-1], values[-period:]):
+        d = b - a
+        gains.append(max(d, 0.0))
+        losses.append(max(-d, 0.0))
+    gain, loss = mean(gains), mean(losses)
+    if loss <= 1e-12:
+        return 100.0 if gain > 0 else 50.0
+    rs = gain / loss
+    return 100.0 - 100.0 / (1.0 + rs)
+
+
+def _atr(candles, period=14):
+    if len(candles) < period + 1:
+        return None
+    trs = []
+    for prev, cur in zip(candles[-period - 1:-1], candles[-period:]):
+        trs.append(max(cur.high - cur.low,
+                       abs(cur.high - prev.close),
+                       abs(cur.low - prev.close)))
+    return mean(trs)
 
 
 def _book(levels):
     out = []
     for row in levels or []:
         try:
-            price = _f(row[0])
-            qty = _f(row[1])
+            price, qty = _f(row[0]), _f(row[1])
         except (IndexError, TypeError):
             continue
         if price > 0 and qty > 0:
@@ -25,243 +59,102 @@ def _book(levels):
     return out
 
 
-def _median(values, default=0.0):
-    vals = sorted(v for v in values if v > 0 and isfinite(v))
-    return median(vals) if vals else default
-
-
-def _atr(candles, period=20):
-    rows = candles[-period - 1:]
-    if len(rows) < 3:
-        return 0.0
-    trs = []
-    for i in range(1, len(rows)):
-        c = rows[i]
-        prev_close = rows[i - 1].close
-        trs.append(max(c.high - c.low, abs(c.high - prev_close), abs(c.low - prev_close)))
-    return _median(trs, 0.0)
-
-
-def _wall_levels(levels, current, direction, max_distance_pct=0.012):
-    rows = _book(levels)
-    if not rows or current <= 0:
-        return []
-
-    if direction == "ABOVE":
-        candidates = [
-            r for r in rows
-            if r[0] > current and (r[0] - current) / current <= max_distance_pct
-        ]
-    else:
-        candidates = [
-            r for r in rows
-            if r[0] < current and (current - r[0]) / current <= max_distance_pct
-        ]
-
-    if len(candidates) < 3:
-        return []
-
-    baseline = _median([r[2] for r in candidates], 0.0)
-    if baseline <= 0:
-        return []
-
-    # A wall must be meaningfully larger than nearby visible liquidity.
-    # We do not use rounded/whole-number prices because Bybit contracts have
-    # different tick sizes and many liquid coins trade far below $10.
-    walls = [
-        (price, notional, notional / baseline)
-        for price, _, notional in candidates
-        if notional >= baseline * 2.5
-    ]
-
-    if direction == "ABOVE":
-        walls.sort(key=lambda x: x[0])
-    else:
-        walls.sort(key=lambda x: x[0], reverse=True)
-    return walls
-
-
-def _nearest_level(levels, current, direction, max_distance_pct):
-    rows = _book(levels)
-    if direction == "ABOVE":
-        candidates = [
-            r for r in rows
-            if r[0] > current and (r[0] - current) / current <= max_distance_pct
-        ]
-        return min(candidates, key=lambda r: r[0]) if candidates else None
-
-    candidates = [
-        r for r in rows
-        if r[0] < current and (current - r[0]) / current <= max_distance_pct
-    ]
-    return max(candidates, key=lambda r: r[0]) if candidates else None
-
-
-def _body_strength(candle):
-    rng = max(candle.high - candle.low, candle.close * 1e-9)
-    return abs(candle.close - candle.open) / rng
-
-
-def _close_location(candle):
-    rng = max(candle.high - candle.low, candle.close * 1e-9)
-    return (candle.close - candle.low) / rng
-
-
-def _book_stats(orderbook):
+def _book_imbalance(orderbook):
     bids = _book(orderbook.get("bids", []))
     asks = _book(orderbook.get("asks", []))
-    bid_total = sum(x[2] for x in bids[:12])
-    ask_total = sum(x[2] for x in asks[:12])
-    total = bid_total + ask_total
-    imbalance = bid_total / total if total > 0 else 0.5
-    return bids, asks, imbalance
-
-
-def _previous_wall(previous_orderbook, current, direction):
-    if not previous_orderbook:
+    if not bids or not asks:
         return None
-
-    side = "asks" if direction == "ABOVE" else "bids"
-    walls = _wall_levels(
-        previous_orderbook.get(side, []),
-        current,
-        direction,
-        max_distance_pct=0.015,
-    )
-    return walls[0] if walls else None
+    bid = sum(x[2] for x in bids[:12])
+    ask = sum(x[2] for x in asks[:12])
+    total = bid + ask
+    return bid / total if total > 0 else 0.5
 
 
-def _previous_imbalance(previous_orderbook):
-    if not previous_orderbook:
-        return None
-    _, _, imbalance = _book_stats(previous_orderbook)
-    return imbalance
-
-
-def _flow_delta(previous_orderbook, current_imbalance):
-    previous = _previous_imbalance(previous_orderbook)
-    if previous is None:
+def _flow_delta(previous_orderbook, current):
+    if not previous_orderbook or current is None:
         return 0.0
-    return current_imbalance - previous
+    previous = _book_imbalance(previous_orderbook)
+    return 0.0 if previous is None else current - previous
 
 
-def _trend(candles):
-    closes = [c.close for c in candles[-24:]]
-    if len(closes) < 12:
+def _volume_ratio(candles):
+    if len(candles) < 21:
+        return 0.0
+    baseline = median(c.volume for c in candles[-21:-1])
+    return candles[-1].volume / max(baseline, 1e-9)
+
+
+def _momentum(values, lookback=3):
+    if len(values) <= lookback:
+        return 0.0
+    return (values[-1] - values[-1 - lookback]) / max(abs(values[-1 - lookback]), 1e-9)
+
+
+def _trend_direction(closes):
+    fast, slow = _ema(closes, 20), _ema(closes, 50)
+    if fast is None or slow is None:
+        return 0, None, None
+    if fast > slow * 1.0004:
+        return 1, fast, slow
+    if fast < slow * 0.9996:
+        return -1, fast, slow
+    return 0, fast, slow
+
+
+def _higher_trend(closes, bucket=3):
+    if len(closes) < 60:
         return 0
-
-    fast = sum(closes[-6:]) / 6
-    slow = sum(closes[-18:]) / 18
-
-    if fast > slow * 1.0008:
-        return 1
-    if fast < slow * 0.9992:
-        return -1
-    return 0
-
-
-
-def _higher_timeframe_trend(candles, bucket=3):
-    """Build a completed higher-timeframe trend from closed 5m candles."""
-    if len(candles) < 36:
-        return 0
-
     rows = []
-    for i in range(0, len(candles) - bucket + 1, bucket):
-        chunk = candles[i:i + bucket]
-        if len(chunk) != bucket:
-            continue
-        rows.append(
-            (
-                chunk[0].open,
-                max(c.high for c in chunk),
-                min(c.low for c in chunk),
-                chunk[-1].close,
-                sum(c.volume for c in chunk),
-            )
-        )
-
-    if len(rows) < 12:
+    for i in range(0, len(closes) - bucket + 1, bucket):
+        chunk = closes[i:i + bucket]
+        if len(chunk) == bucket:
+            rows.append(chunk[-1])
+    if len(rows) < 20:
         return 0
-
-    closes = [row[3] for row in rows[-12:]]
-    fast = sum(closes[-4:]) / 4
-    slow = sum(closes[-9:]) / 9
-
-    if fast > slow * 1.0010:
+    fast, slow = _ema(rows[-30:], 8), _ema(rows[-30:], 18)
+    if fast is None or slow is None:
+        return 0
+    if fast > slow * 1.0007:
         return 1
-    if fast < slow * 0.9990:
+    if fast < slow * 0.9993:
         return -1
     return 0
 
-def _market_regime(candles, atr, trend):
-    """Classify the recent 5m market without using the forming candle."""
-    if not candles or atr <= 0:
-        return "UNKNOWN"
 
-    price = max(candles[-1].close, 1e-9)
-    atr_pct = atr / price
-
-    if atr_pct >= 0.006:
-        return "HIGH_VOL"
-    if trend > 0:
-        return "TREND_UP"
-    if trend < 0:
-        return "TREND_DOWN"
-    return "RANGE"
-
-
-def _rising_lows(candles, n=3):
-    rows = candles[-n:]
-    return len(rows) == n and all(rows[i].low >= rows[i - 1].low for i in range(1, n))
-
-
-def _falling_highs(candles, n=3):
-    rows = candles[-n:]
-    return len(rows) == n and all(rows[i].high <= rows[i - 1].high for i in range(1, n))
-
-
-def _make_targets(side, entry, stop, first_level, second_level, atr):
-    risk = abs(entry - stop)
-    if risk <= 0:
-        return []
-
-    min_step = max(entry * 0.0007, atr * 0.15)
-
+def _score_components(side, imbalance, flow, volume_ratio, momentum, rsi,
+                      trend, trend15, spread_bps, atr_pct, rr, body):
     if side == "LONG":
-        candidates = [
-            entry + max(risk * 1.40, min_step),
-            entry + max(risk * 2.40, min_step * 1.5),
-            entry + max(risk * 3.50, min_step * 2.0),
-        ]
-        if first_level and first_level > entry:
-            candidates[0] = min(candidates[0], first_level * 0.999)
-        if second_level and second_level > entry:
-            candidates[1] = min(candidates[1], second_level * 0.999)
-            candidates[2] = min(candidates[2], second_level * 0.999)
+        book = 25 if imbalance >= 0.60 else 20 if imbalance >= 0.56 else 12 if imbalance >= 0.53 else 0
+        flow_score = 10 if flow >= 0.025 else 7 if flow >= 0.010 else 4 if flow >= -0.005 else 0
+        rsi_score = 5 if 52 <= rsi <= 68 else 3 if 50 <= rsi <= 72 else 0
+    else:
+        book = 25 if imbalance <= 0.40 else 20 if imbalance <= 0.44 else 12 if imbalance <= 0.47 else 0
+        flow_score = 10 if flow <= -0.025 else 7 if flow <= -0.010 else 4 if flow <= 0.005 else 0
+        rsi_score = 5 if 32 <= rsi <= 48 else 3 if 28 <= rsi <= 50 else 0
 
-        targets = []
-        for x in candidates:
-            if x > entry and (not targets or x > targets[-1]):
-                targets.append(x)
-        return targets
+    mom = abs(momentum)
+    momentum_score = 15 if mom >= 0.0025 else 11 if mom >= 0.0015 else 7 if mom >= 0.0008 else 0
+    trend_score = 12 if trend == (1 if side == "LONG" else -1) else 0
+    volume_score = 10 if volume_ratio >= 1.50 else 8 if volume_ratio >= 1.25 else 5 if volume_ratio >= 1.05 else 0
+    spread_score = 5 if spread_bps <= 5 else 3 if spread_bps <= 8 else 1 if spread_bps <= 12 else 0
+    volatility_score = 5 if 0.10 <= atr_pct <= 0.70 else 3 if atr_pct < 0.90 else 0
+    rr_score = 5 if rr >= 2.4 else 4 if rr >= 2.0 else 2 if rr >= 1.6 else 0
+    candle_score = 5 if body >= 0.65 else 3 if body >= 0.50 else 0
+    if trend15 == (1 if side == "LONG" else -1):
+        trend_score = min(12, trend_score + 1)
 
-    candidates = [
-        entry - max(risk * 1.40, min_step),
-        entry - max(risk * 2.40, min_step * 1.5),
-        entry - max(risk * 3.50, min_step * 2.0),
-    ]
-    if first_level and first_level < entry:
-        candidates[0] = max(candidates[0], first_level * 1.001)
-    if second_level and second_level < entry:
-        candidates[1] = max(candidates[1], second_level * 1.001)
-        candidates[2] = max(candidates[2], second_level * 1.001)
-
-    targets = []
-    for x in candidates:
-        if x < entry and (not targets or x < targets[-1]):
-            targets.append(x)
-    return targets
+    return {
+        "order_book": min(25, book),
+        "momentum": min(15, momentum_score),
+        "trend": min(12, trend_score),
+        "rsi": min(5, rsi_score),
+        "flow": min(10, flow_score),
+        "volume": min(10, volume_score),
+        "spread": min(5, spread_score),
+        "volatility": min(5, volatility_score),
+        "risk_reward": min(5, rr_score),
+        "candle": min(5, candle_score),
+    }
 
 
 class SmartStrategy:
