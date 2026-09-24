@@ -43,8 +43,29 @@ class Store:
             self.db.execute("ALTER TABLE positions ADD COLUMN forensic TEXT DEFAULT '{}'")
         self.db.commit()
 
+    @staticmethod
+    def _entry_forensics(position):
+        risk = abs(float(position.entry) - float(position.stop_loss))
+        first_tp = float(position.take_profits[0]) if position.take_profits else None
+        final_tp = float(position.take_profits[-1]) if position.take_profits else None
+        return {
+            "price": float(position.entry),
+            "stop_loss": float(position.stop_loss),
+            "first_tp": first_tp,
+            "final_tp": final_tp,
+            "risk_price": risk,
+            "risk_pct": (risk / abs(float(position.entry)) * 100.0) if position.entry else 0.0,
+            "tp1_r": (abs(first_tp - position.entry) / risk) if first_tp is not None and risk > 0 else None,
+            "final_r": (abs(final_tp - position.entry) / risk) if final_tp is not None and risk > 0 else None,
+            "leverage": int(position.leverage),
+        }
+
     def add_trade(self, position, exit_price, pnl, reason, fees=0.0):
         forensic = dict(getattr(position, "forensic", {}) or {})
+        forensic["entry"] = self._entry_forensics(position)
+        forensic["setup"] = str(getattr(position, "setup", "") or "")
+        forensic["score_10"] = float(getattr(position, "score_10", 0.0))
+        forensic["score_components"] = dict(getattr(position, "score_components", {}) or {})
         forensic["exit"] = {
             "price": float(exit_price),
             "reason": str(reason),
@@ -162,6 +183,11 @@ class Store:
         }
 
     def save_position(self, p):
+        forensic = dict(getattr(p, "forensic", {}) or {})
+        forensic["entry"] = self._entry_forensics(p)
+        forensic["setup"] = str(getattr(p, "setup", "") or "")
+        forensic["score_10"] = float(getattr(p, "score_10", 0.0))
+        forensic["score_components"] = dict(getattr(p, "score_components", {}) or {})
         self.db.execute(
             """INSERT OR REPLACE INTO positions
                (id,symbol,side,entry,quantity,stop_loss,take_profits,opened_at,leverage,
@@ -174,7 +200,7 @@ class Store:
              p.initial_stop_loss, p.entry_fee, p.fees, getattr(p, "setup", ""),
              float(getattr(p, "score_10", 0.0)),
              json.dumps(getattr(p, "score_components", {}) or {}),
-             json.dumps(getattr(p, "forensic", {}) or {}))
+             json.dumps(forensic))
         )
         self.db.commit()
 
