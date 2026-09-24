@@ -1,4 +1,5 @@
 import asyncio
+import json
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
@@ -75,6 +76,19 @@ async def stats():
 @app.get("/api/self-analysis")
 async def self_analysis():
     return store.statistics().get("self_analysis", {})
+
+@app.get("/api/forensics")
+async def forensics():
+    rows = store.history(100)
+    out = []
+    for row in rows:
+        item = dict(row)
+        try:
+            item["forensic"] = json.loads(item.get("forensic") or "{}")
+        except Exception:
+            item["forensic"] = {}
+        out.append(item)
+    return out
 
 @app.get("/api/settings")
 async def get_settings():
