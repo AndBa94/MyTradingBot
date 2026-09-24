@@ -63,3 +63,25 @@ class Position:
     score_10: float = 0.0
     score_components: dict = field(default_factory=dict)
     forensic: dict = field(default_factory=dict)
+
+    def __post_init__(self):
+        if not self.forensic:
+            risk = abs(float(self.entry) - float(self.stop_loss))
+            first_tp = float(self.take_profits[0]) if self.take_profits else None
+            final_tp = float(self.take_profits[-1]) if self.take_profits else None
+            self.forensic = {
+                "entry": {
+                    "price": float(self.entry),
+                    "stop_loss": float(self.stop_loss),
+                    "first_tp": first_tp,
+                    "final_tp": final_tp,
+                    "risk_price": risk,
+                    "risk_pct": (risk / abs(float(self.entry)) * 100.0) if self.entry else 0.0,
+                    "tp1_r": (abs(first_tp - self.entry) / risk) if first_tp is not None and risk > 0 else None,
+                    "final_r": (abs(final_tp - self.entry) / risk) if final_tp is not None and risk > 0 else None,
+                    "leverage": int(self.leverage),
+                },
+                "setup": str(self.setup or ""),
+                "score_10": float(self.score_10 or 0.0),
+                "score_components": dict(self.score_components or {}),
+            }
