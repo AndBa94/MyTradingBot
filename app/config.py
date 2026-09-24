@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     # Explainable 0-10 composite score required for automatic PAPER entries.
     auto_min_score_10: float = 7.5
     auto_cooldown_seconds: int = 90
-    max_hold_minutes: int = 30
+    max_hold_minutes: int = 40
 
     db_path: str = "data/tradingbot.db"
 
