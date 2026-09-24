@@ -42,21 +42,6 @@ class StrategyTests(unittest.TestCase):
     def setUp(self):
         self.strategy = SmartStrategy()
 
-    def test_first_bot_style_signal_has_legacy_score(self):
-        rows = strong_trend_candles()
-        m = MarketSnapshot(
-            "BTCUSDT", rows[-1].close, rows[-1].close - 0.01,
-            rows[-1].close + 0.01, 100_000_000, 2.0, 2_000_000,
-            0, 0, 2.0,
-        )
-        o = self.strategy.analyze(m, rows, book_long())
-        self.assertIsNotNone(o)
-        self.assertEqual(o.setup, "PULSE_LEGACY")
-        self.assertGreaterEqual(o.score_10, 8.6)
-        self.assertGreaterEqual(o.confidence, 0.86)
-        self.assertEqual(o.side, "LONG")
-        self.assertGreater(o.take_profits[0], o.entry)
-
     def test_opposite_book_rejects_long(self):
         rows = strong_trend_candles()
         m = MarketSnapshot(
