@@ -62,3 +62,4 @@ class Position:
     setup: str = ""
     score_10: float = 0.0
     score_components: dict = field(default_factory=dict)
+    forensic: dict = field(default_factory=dict)
