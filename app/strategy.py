@@ -197,14 +197,14 @@ class SmartStrategy:
 
         long_ok = (
             trend == 1 and trend15 >= 0
-            and momentum >= 0.0008 and 52 <= rsi <= 70
+            and momentum >= 0.0008 and 50 <= rsi <= 72
             and imbalance >= 0.53 and flow >= -0.005
             and volume_ratio >= 1.05 and last.close > last.open
             and body >= 0.45 and close_loc >= 0.60
         )
         short_ok = (
             trend == -1 and trend15 <= 0
-            and momentum <= -0.0008 and 30 <= rsi <= 48
+            and momentum <= -0.0008 and 28 <= rsi <= 50
             and imbalance <= 0.47 and flow <= 0.005
             and volume_ratio >= 1.05 and last.close < last.open
             and body >= 0.45 and close_loc <= 0.40
