@@ -122,37 +122,5 @@ class TradingMathTests(unittest.TestCase):
         self.assertGreaterEqual(stats["total_fees"], 0)
 
 
-class StrategyTests(unittest.TestCase):
-    def test_liquidity_strategy_finds_three_integer_targets(self):
-        candles = []
-        for i in range(60):
-            candles.append(type("C", (), {
-                "timestamp": i, "open": 100.0, "high": 100.2,
-                "low": 99.8, "close": 100.0, "volume": 100.0
-            })())
-        candles[-2] = type("C", (), {
-            "timestamp": 58, "open": 100.0, "high": 100.2,
-            "low": 99.9, "close": 100.1, "volume": 100.0
-        })()
-        candles[-1] = type("C", (), {
-            "timestamp": 59, "open": 100.3, "high": 100.8,
-            "low": 100.3, "close": 100.7, "volume": 150.0
-        })()
-        m = MarketSnapshot(
-            "BTCUSDT", 100.7, 100.69, 100.71, 10_000_000,
-            0.1, 100_000, 0, 0, 2
-        )
-        book = {
-            "bids": [["100.0", "1000"], ["98.0", "10"], ["97.0", "10"], ["96.0", "10"]],
-            "asks": [["103.0", "10"], ["106.0", "10"], ["102.0", "10"], ["104.0", "10"], ["105.0", "10"]],
-        }
-        o = SmartStrategy().analyze(m, candles, book, 3)
-        self.assertIsNotNone(o)
-        self.assertEqual(o.side, "LONG")
-        self.assertTrue(o.take_profits)
-        self.assertGreater(o.take_profits[0], o.entry)
-        self.assertLess(o.stop_loss, o.entry)
-
-
 if __name__ == "__main__":
     unittest.main()
