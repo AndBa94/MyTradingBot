@@ -83,6 +83,23 @@ class TradingMathTests(unittest.TestCase):
         self.assertNotIn(p.id, self.engine.positions)
         self.assertEqual(len(self.store.all_history()), 1)
 
+    async def test_time_exit_gives_healthy_position_extra_window(self):
+        p = self.engine.open_paper(opportunity())
+        p.opened_at = p.opened_at - __import__("datetime").timedelta(minutes=31)
+        self.engine.latest_markets = [
+            MarketSnapshot(
+                "BTCUSDT", 100.2, 100.1, 100.2, 10_000_000, 0, 1_000_000
+            )
+        ]
+
+        await self.engine.manage_positions()
+        self.assertIn(p.id, self.engine.positions)
+
+        p.opened_at = p.opened_at - __import__("datetime").timedelta(minutes=29)
+        await self.engine.manage_positions()
+        self.assertNotIn(p.id, self.engine.positions)
+        self.assertEqual(self.store.all_history()[0]["reason"], "TIME_EXIT_HARD")
+
     def test_settings_do_not_erase_pnl(self):
         p = self.engine.open_paper(opportunity())
         before = self.engine.balance
