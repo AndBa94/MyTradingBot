@@ -662,14 +662,43 @@ class Engine:
                         continue
 
             age = datetime.now(timezone.utc).replace(tzinfo=None) - p.opened_at
+            age_minutes = age.total_seconds() / 60.0
 
-            if age >= timedelta(
-                minutes=self.s.max_hold_minutes
-            ):
+            # The nominal hold time is a review point, not an unconditional
+            # close. Give healthy/near-entry scalps extra room, but never allow
+            # a position to remain open indefinitely.
+            nominal_hold = float(self.s.max_hold_minutes)
+            hard_hold = nominal_hold + 20.0
+
+            if age_minutes >= nominal_hold:
+                risk_price = abs(
+                    float(p.entry) - float(p.initial_stop_loss or p.stop_loss)
+                )
+                if risk_price > 0:
+                    adverse = (
+                        float(p.entry) - price
+                        if p.side == "LONG"
+                        else price - float(p.entry)
+                    )
+                    adverse_r = adverse / risk_price
+                else:
+                    adverse_r = 0.0
+
+                # Only force the normal time exit when the trade is materially
+                # adverse. Flat/near-entry positions get the extra window.
+                if adverse_r >= 0.35:
+                    self._finish_position(
+                        p,
+                        price,
+                        "TIME_EXIT",
+                    )
+                    continue
+
+            if age_minutes >= hard_hold:
                 self._finish_position(
                     p,
                     price,
-                    "TIME_EXIT",
+                    "TIME_EXIT_HARD",
                 )
                 continue
 
