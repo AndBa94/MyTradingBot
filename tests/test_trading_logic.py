@@ -1,3 +1,4 @@
+import asyncio
 import tempfile
 import unittest
 from types import SimpleNamespace
@@ -83,7 +84,7 @@ class TradingMathTests(unittest.TestCase):
         self.assertNotIn(p.id, self.engine.positions)
         self.assertEqual(len(self.store.all_history()), 1)
 
-    async def test_time_exit_gives_healthy_position_extra_window(self):
+    def test_time_exit_gives_healthy_position_extra_window(self):
         p = self.engine.open_paper(opportunity())
         p.opened_at = p.opened_at - __import__("datetime").timedelta(minutes=31)
         self.engine.latest_markets = [
@@ -92,11 +93,11 @@ class TradingMathTests(unittest.TestCase):
             )
         ]
 
-        await self.engine.manage_positions()
+        asyncio.run(self.engine.manage_positions())
         self.assertIn(p.id, self.engine.positions)
 
         p.opened_at = p.opened_at - __import__("datetime").timedelta(minutes=29)
-        await self.engine.manage_positions()
+        asyncio.run(self.engine.manage_positions())
         self.assertNotIn(p.id, self.engine.positions)
         self.assertEqual(self.store.all_history()[0]["reason"], "TIME_EXIT_HARD")
 
