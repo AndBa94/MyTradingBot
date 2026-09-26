@@ -187,9 +187,9 @@ class SmartStrategy:
 
         entry_long = m.ask
         entry_short = m.bid
-        if abs(entry_long - last.close) / max(last.close, 1e-9) > 0.0045:
+        if abs(entry_long - last.close) / max(last.close, 1e-9) > 0.0030:
             return None
-        if abs(entry_short - last.close) / max(last.close, 1e-9) > 0.0045:
+        if abs(entry_short - last.close) / max(last.close, 1e-9) > 0.0030:
             return None
 
         body = abs(last.close - last.open) / max(last.high - last.low, last.close * 1e-9)
@@ -197,17 +197,17 @@ class SmartStrategy:
 
         long_ok = (
             trend == 1 and trend15 >= 0
-            and momentum >= 0.0008 and 50 <= rsi <= 72
-            and imbalance >= 0.53 and flow >= -0.005
-            and volume_ratio >= 1.05 and last.close > last.open
-            and body >= 0.45 and close_loc >= 0.60
+            and momentum >= 0.0010 and 51 <= rsi <= 70
+            and imbalance >= 0.55 and flow >= 0.000
+            and volume_ratio >= 1.15 and last.close > last.open
+            and body >= 0.55 and close_loc >= 0.65
         )
         short_ok = (
             trend == -1 and trend15 <= 0
-            and momentum <= -0.0008 and 28 <= rsi <= 50
-            and imbalance <= 0.47 and flow <= 0.005
-            and volume_ratio >= 1.05 and last.close < last.open
-            and body >= 0.45 and close_loc <= 0.40
+            and momentum <= -0.0012 and 30 <= rsi <= 49
+            and imbalance <= 0.45 and flow <= 0.000
+            and volume_ratio >= 1.20 and last.close < last.open
+            and body >= 0.55 and close_loc <= 0.35
         )
 
         funding = _f(m.funding_rate)
@@ -250,8 +250,8 @@ class SmartStrategy:
         )
         raw_score = sum(components.values())
 
-        # The old strategy admitted strong 85-90-ish setups. 86 keeps that
-        # character but removes the weakest tail of the old distribution.
+        # Keep the legacy score gate, but make the entry gate harder: the overnight
+        # history showed too many late/weak entries reaching the stop before follow-through.
         if raw_score < 86:
             return None
 
