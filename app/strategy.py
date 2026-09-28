@@ -157,10 +157,262 @@ def _score_components(side, imbalance, flow, volume_ratio, momentum, rsi,
     }
 
 
-class SmartStrategy:
-    """First-bot style microstructure scorer, lightly hardened."""
+def _trend_slope(values, lookback=5):
+    if len(values) <= lookback:
+        return 0.0
+    base = values[-1 - lookback]
+    return (values[-1] - base) / max(abs(base), 1e-9)
 
-    def analyze(self, m, candles, orderbook=None, tp_count=3, previous_orderbook=None):
+
+def _structure_level(candles, lookback=24, exclude=2, side="LONG"):
+    end = len(candles) - exclude
+    start = max(0, end - lookback)
+    window = candles[start:end]
+    if not window:
+        return None
+    if side == "LONG":
+        return max(c.high for c in window)
+    return min(c.low for c in window)
+
+
+def _atr_pct(candles, atr):
+    if not candles or atr is None:
+        return 0.0
+    return atr / max(candles[-1].close, 1e-9) * 100.0
+
+
+class TrendExpansionStrategy:
+    """Breakout-retest continuation model designed to capture larger moves."""
+
+    def analyze(self, m, candles5, candles15, orderbook=None, tp_count=3,
+                previous_orderbook=None):
+        if (
+            len(candles5) < 80
+            or len(candles15) < 50
+            or not orderbook
+            or m.last <= 0
+        ):
+            return None
+
+        last = candles5[-1]
+        prev = candles5[-2]
+        closes5 = [c.close for c in candles5]
+        closes15 = [c.close for c in candles15]
+
+        imbalance = _book_imbalance(orderbook)
+        if imbalance is None:
+            return None
+
+        atr = _atr(candles5, 14)
+        atr15 = _atr(candles15, 14)
+        if atr is None or atr15 is None or atr <= 0:
+            return None
+
+        ema20_5 = _ema(closes5, 20)
+        ema50_5 = _ema(closes5, 50)
+        ema20_15 = _ema(closes15, 20)
+        ema50_15 = _ema(closes15, 50)
+        if None in (ema20_5, ema50_5, ema20_15, ema50_15):
+            return None
+
+        slope5 = _trend_slope(closes5, 5)
+        slope15 = _trend_slope(closes15, 4)
+        volume_now = _volume_ratio(candles5)
+        breakout_volume = (
+            candles5[-2].volume
+            / max(median(c.volume for c in candles5[-26:-2]), 1e-9)
+        )
+
+        rsi = _rsi(closes5, 14)
+        if rsi is None:
+            return None
+
+        flow = _flow_delta(previous_orderbook, imbalance)
+        spread_bps = _f(m.spread_bps)
+        if spread_bps > 8:
+            return None
+
+        body = abs(last.close - last.open) / max(
+            last.high - last.low,
+            last.close * 1e-9,
+        )
+        close_loc = (last.close - last.low) / max(
+            last.high - last.low,
+            last.close * 1e-9,
+        )
+
+        resistance = _structure_level(candles5, side="LONG")
+        support = _structure_level(candles5, side="SHORT")
+        if resistance is None or support is None:
+            return None
+
+        long_retest = (
+            prev.close > resistance * 1.0008
+            and last.low <= resistance * 1.0015
+            and last.close > resistance * 1.0003
+            and last.close > last.open
+            and body >= 0.45
+            and close_loc >= 0.60
+        )
+        short_retest = (
+            prev.close < support * 0.9992
+            and last.high >= support * 0.9985
+            and last.close < support * 0.9997
+            and last.close < last.open
+            and body >= 0.45
+            and close_loc <= 0.40
+        )
+
+        long_ok = (
+            long_retest
+            and ema20_15 > ema50_15 * 1.001
+            and ema20_5 > ema50_5 * 1.0005
+            and slope15 > 0.0005
+            and slope5 > 0.0008
+            and volume_now >= 1.35
+            and breakout_volume >= 1.50
+            and imbalance >= 0.57
+            and flow >= -0.005
+            and 52 <= rsi <= 72
+        )
+
+        short_ok = (
+            short_retest
+            and ema20_15 < ema50_15 * 0.999
+            and ema20_5 < ema50_5 * 0.9995
+            and slope15 < -0.0005
+            and slope5 < -0.0008
+            and volume_now >= 1.35
+            and breakout_volume >= 1.50
+            and imbalance <= 0.43
+            and flow <= 0.005
+            and 28 <= rsi <= 48
+        )
+
+        funding = _f(m.funding_rate)
+        if long_ok and funding >= 0.0008:
+            long_ok = False
+        if short_ok and funding <= -0.0008:
+            short_ok = False
+
+        if long_ok == short_ok:
+            return None
+
+        side = "LONG" if long_ok else "SHORT"
+        entry = m.ask if side == "LONG" else m.bid
+        level = resistance if side == "LONG" else support
+
+        if side == "LONG":
+            stop = min(last.low, level - atr * 0.20)
+            risk = entry - stop
+            tpr = [1.50, 2.50, 4.00, 5.50, 7.00]
+        else:
+            stop = max(last.high, level + atr * 0.20)
+            risk = stop - entry
+            tpr = [1.50, 2.50, 4.00, 5.50, 7.00]
+
+        if risk <= 0:
+            return None
+
+        # Reject oversized structural risk; this keeps the risk manager from
+        # accepting a technically valid breakout with an impractical stop.
+        risk_pct = risk / max(entry, 1e-9) * 100.0
+        if risk_pct > max(1.25, _atr_pct(candles5, atr) * 2.2):
+            return None
+
+        tp = (
+            [entry + risk * r for r in tpr]
+            if side == "LONG"
+            else [entry - risk * r for r in tpr]
+        )
+
+        round_trip_cost = (
+            spread_bps / 10000.0 + 2.0 * 0.00055
+        )
+        if abs(tp[0] - entry) / max(entry, 1e-9) <= round_trip_cost * 1.5:
+            return None
+
+        # A large-move setup needs room after the retest, not just a high RR
+        # produced by an extremely tight stop.
+        extension_room = (
+            max(abs(tp[2] - entry), atr * 2.5)
+            / max(entry, 1e-9)
+        )
+        if extension_room < 0.008:
+            return None
+
+        components = {
+            "market_regime": 15 if (
+                (side == "LONG" and ema20_15 > ema50_15 and slope15 > 0)
+                or
+                (side == "SHORT" and ema20_15 < ema50_15 and slope15 < 0)
+            ) else 0,
+            "breakout_retest": 20,
+            "volume_expansion": 15 if breakout_volume >= 2.0 else 12,
+            "order_book": 15 if (
+                (side == "LONG" and imbalance >= 0.60)
+                or (side == "SHORT" and imbalance <= 0.40)
+            ) else 10,
+            "momentum": 10 if abs(slope5) >= 0.0015 else 7,
+            "trend_5m": 10,
+            "volatility": 5 if 0.15 <= _atr_pct(candles5, atr) <= 1.0 else 2,
+            "spread": 5 if spread_bps <= 5 else 3,
+            "risk_reward": 5,
+        }
+        raw_score = sum(components.values())
+        if raw_score < 82:
+            return None
+
+        score_10 = raw_score / 10.0
+        reasons = [
+            "strategy=TREND_EXPANSION",
+            f"expansion_score={raw_score:.0f}/100",
+            f"breakout_level={level:.8g}",
+            f"volume_x={volume_now:.2f}",
+            f"breakout_volume_x={breakout_volume:.2f}",
+            f"book_imbalance={imbalance:.3f}",
+            f"flow_delta={flow:+.3f}",
+            f"rsi={rsi:.1f}",
+            f"slope5={slope5:+.4%}",
+            f"slope15={slope15:+.4%}",
+            f"atr_pct={_atr_pct(candles5, atr):.3f}",
+            f"risk_pct={risk_pct:.3f}",
+            f"tp1_r=1.50",
+            f"final_r=7.00",
+        ]
+
+        selected = tp[:max(1, min(5, int(tp_count)))]
+        return Opportunity(
+            m.symbol,
+            side,
+            "TREND_EXPANSION",
+            "BREAKOUT_RETEST",
+            score_10 / 10.0,
+            abs(selected[-1] - entry) / max(entry, 1e-9),
+            entry,
+            stop,
+            selected,
+            reasons,
+            score_10=score_10,
+            score_components=components,
+            decision="ENTER",
+        )
+
+
+class SmartStrategy:
+    """Primary trend-expansion strategy with legacy microstructure fallback."""
+
+    def __init__(self):
+        self.trend_expansion = TrendExpansionStrategy()
+
+    def analyze(self, m, candles, orderbook=None, tp_count=3, previous_orderbook=None, candles15=None):
+        if candles15:
+            expansion = self.trend_expansion.analyze(
+                m, candles, candles15, orderbook, tp_count,
+                previous_orderbook=previous_orderbook,
+            )
+            if expansion is not None:
+                return expansion
         if len(candles) < 60 or not orderbook or m.last <= 0:
             return None
 
