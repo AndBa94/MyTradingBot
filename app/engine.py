@@ -109,21 +109,24 @@ class Engine:
         async def analyze_market(m):
             async with sem:
                 try:
-                    candles, orderbook = await asyncio.gather(
-                        self.client.get_klines(m.symbol),
+                    candles5, candles15, orderbook = await asyncio.gather(
+                        self.client.get_klines(m.symbol, interval="5"),
+                        self.client.get_klines(m.symbol, interval="15"),
                         self.client.get_orderbook(m.symbol, limit=50),
                     )
 
                     previous_orderbook = self.previous_orderbooks.get(m.symbol)
-                    # Bybit includes the currently forming 5m candle. Using it for
-                    # entry logic causes intrabar wick/volume signals to repaint.
-                    signal_candles = candles[:-1]
+                    # Exclude the currently forming candle from both timeframes so
+                    # breakout/retest signals cannot repaint intrabar.
+                    signal_candles5 = candles5[:-1]
+                    signal_candles15 = candles15[:-1]
                     opportunity = self.strategy.analyze(
                         m,
-                        signal_candles,
+                        signal_candles5,
                         orderbook,
                         int(self.settings["take_profits"]),
                         previous_orderbook=previous_orderbook,
+                        candles15=signal_candles15,
                     )
 
                     # Store the previous snapshot only after analysis. This
