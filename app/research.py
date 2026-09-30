@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from math import sqrt
 from collections import defaultdict
+import random
 from statistics import mean
 
 
@@ -89,6 +90,69 @@ def _group_summary(rows, minimum_sample):
     return out
 
 
+
+def equity_max_drawdown(pnls):
+    curve = 0.0
+    peak = 0.0
+    drawdown = 0.0
+    for pnl in pnls:
+        curve += _float(pnl)
+        peak = max(peak, curve)
+        drawdown = max(drawdown, peak - curve)
+    return drawdown
+
+
+def monte_carlo(pnls, simulations=2000, seed=42):
+    """Shuffle observed trade outcomes to estimate sequence risk.
+
+    This does not create new returns or predict the future. It only tests how
+    sensitive the observed outcomes are to trade ordering.
+    """
+    values = [_float(x) for x in (pnls or [])]
+    n = len(values)
+    if n == 0:
+        return {
+            "simulations": 0,
+            "trades": 0,
+            "median_final_pnl": 0.0,
+            "p05_final_pnl": 0.0,
+            "p95_final_pnl": 0.0,
+            "median_max_drawdown": 0.0,
+            "p95_max_drawdown": 0.0,
+        }
+
+    rng = random.Random(int(seed))
+    finals = []
+    drawdowns = []
+    count = max(1, int(simulations))
+    for _ in range(count):
+        sample = values[:]
+        rng.shuffle(sample)
+        finals.append(sum(sample))
+        drawdowns.append(equity_max_drawdown(sample))
+
+    finals.sort()
+    drawdowns.sort()
+
+    def percentile(items, p):
+        if len(items) == 1:
+            return items[0]
+        index = (len(items) - 1) * float(p)
+        lo = int(index)
+        hi = min(lo + 1, len(items) - 1)
+        weight = index - lo
+        return items[lo] * (1.0 - weight) + items[hi] * weight
+
+    return {
+        "simulations": count,
+        "trades": n,
+        "median_final_pnl": percentile(finals, 0.50),
+        "p05_final_pnl": percentile(finals, 0.05),
+        "p95_final_pnl": percentile(finals, 0.95),
+        "median_max_drawdown": percentile(drawdowns, 0.50),
+        "p95_max_drawdown": percentile(drawdowns, 0.95),
+    }
+
 def build_research_report(rows, minimum_sample=30):
     """Build a conservative research report from closed trades.
 
@@ -109,6 +173,7 @@ def build_research_report(rows, minimum_sample=30):
         "by_setup": _group_summary(by_setup, minimum_sample),
         "by_score": _group_summary(by_score, minimum_sample),
         "by_exit_reason": _group_summary(by_reason, minimum_sample),
+        "monte_carlo": monte_carlo([_float(r.get("pnl")) for r in rows]),
         "guardrails": {
             "no_automatic_parameter_change": True,
             "requires_out_of_sample_validation": True,
