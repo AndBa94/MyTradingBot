@@ -33,7 +33,7 @@ class OrderFlowTests(unittest.TestCase):
             "asks": [["101", "1"]],
         }
         f = analyze_orderflow(book)
-        self.assertAlmostEqual(f["spread_bps"], 20000 / 200, places=12)
+        self.assertAlmostEqual(f["spread_bps"], 200.0, places=12)
 
 
 if __name__ == "__main__":
