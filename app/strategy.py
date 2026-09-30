@@ -537,7 +537,7 @@ class SmartStrategy:
             f"momentum={momentum * 100:.3f}%",
             f"book_imbalance={imbalance:.3f}",
             f"flow_delta={flow:+.3f}",
-            f"flow_pressure={pressure_long if side == \"LONG\" else pressure_short:.3f}",
+            f"flow_pressure={directional_pressure_value:.3f}",
             f"trend5={'UP' if trend > 0 else 'DOWN'}",
             f"trend15={'UP' if trend15 > 0 else 'DOWN' if trend15 < 0 else 'FLAT'}",
             f"atr_pct={atr_pct:.3f}",
