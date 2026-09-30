@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from app.exchange.bybit import BybitClient
 from app.models import Position
 from app.strategy import SmartStrategy
-from app.risk import position_size
+from app.risk import position_size, audit_position_size
 
 
 class Engine:
@@ -494,6 +494,36 @@ class Engine:
 
         q = min(q, margin_cap_qty)
 
+        # Independent math gate: the same trade must pass a second,
+        # deterministic risk calculation before it can exist as a position.
+        math_audit = audit_position_size(
+            self.balance,
+            self.s.risk_per_trade,
+            o.entry,
+            o.stop_loss,
+            leverage,
+            fee_rate=self.paper_fee_rate,
+            stop_slippage_rate=float(
+                getattr(self.s, "paper_stop_slippage_rate", 0.001)
+            ),
+            quantity=q,
+        )
+        if not math_audit["pass"]:
+            self.last_action = (
+                f"MATH REJECT {o.symbol} | "
+                f"risk {math_audit['estimated_max_loss']:.6f} > "
+                f"budget {math_audit['risk_cash']:.6f}"
+            )
+            return None
+
+        if math_audit["margin"] > available_margin + 1e-10:
+            self.last_action = (
+                f"MARGIN REJECT {o.symbol} | "
+                f"margin {math_audit['margin']:.6f} > "
+                f"available {available_margin:.6f}"
+            )
+            return None
+
         if q <= 0:
             return None
 
@@ -538,6 +568,7 @@ class Engine:
         p.setup = str(getattr(o, "setup", ""))
         p.score_10 = float(getattr(o, "score_10", 0.0))
         p.score_components = dict(getattr(o, "score_components", {}) or {})
+        p.forensic["math_audit"] = math_audit
 
         self.balance -= entry_fee
         self._persist_balance()
