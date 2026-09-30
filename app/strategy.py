@@ -305,6 +305,7 @@ class TrendExpansionStrategy:
             return None
 
         side = "LONG" if long_ok else "SHORT"
+        directional_pressure_value = pressure_long if side == "LONG" else pressure_short
         entry = m.ask if side == "LONG" else m.bid
         level = resistance if side == "LONG" else support
 
@@ -378,7 +379,7 @@ class TrendExpansionStrategy:
             f"breakout_volume_x={breakout_volume:.2f}",
             f"book_imbalance={imbalance:.3f}",
             f"flow_delta={flow:+.3f}",
-            f"flow_pressure={pressure_long if side == \"LONG\" else pressure_short:.3f}",
+            f"flow_pressure={directional_pressure_value:.3f}",
             f"rsi={rsi:.1f}",
             f"slope5={slope5:+.4%}",
             f"slope15={slope15:+.4%}",
@@ -484,6 +485,7 @@ class SmartStrategy:
             return None
 
         side = "LONG" if long_ok else "SHORT"
+        directional_pressure_value = pressure_long if side == "LONG" else pressure_short
         entry = entry_long if side == "LONG" else entry_short
 
         if side == "LONG":
