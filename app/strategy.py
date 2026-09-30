@@ -277,6 +277,7 @@ class TrendExpansionStrategy:
             and breakout_volume >= 1.50
             and imbalance >= 0.57
             and flow >= -0.005
+            and pressure_long >= 0.56
             and 52 <= rsi <= 72
         )
 
@@ -290,6 +291,7 @@ class TrendExpansionStrategy:
             and breakout_volume >= 1.50
             and imbalance <= 0.43
             and flow <= 0.005
+            and pressure_short >= 0.56
             and 28 <= rsi <= 48
         )
 
@@ -376,6 +378,7 @@ class TrendExpansionStrategy:
             f"breakout_volume_x={breakout_volume:.2f}",
             f"book_imbalance={imbalance:.3f}",
             f"flow_delta={flow:+.3f}",
+            f"flow_pressure={pressure_long if side == \"LONG\" else pressure_short:.3f}",
             f"rsi={rsi:.1f}",
             f"slope5={slope5:+.4%}",
             f"slope15={slope15:+.4%}",
@@ -455,6 +458,7 @@ class SmartStrategy:
             trend == 1 and trend15 >= 0
             and momentum >= 0.0010 and 51 <= rsi <= 70
             and imbalance >= 0.55 and flow >= 0.000
+            and pressure_long >= 0.54
             and volume_ratio >= 1.15 and last.close > last.open
             and body >= 0.55 and close_loc >= 0.65
         )
@@ -462,6 +466,7 @@ class SmartStrategy:
             trend == -1 and trend15 <= 0
             and momentum <= -0.0012 and 30 <= rsi <= 49
             and imbalance <= 0.45 and flow <= 0.000
+            and pressure_short >= 0.54
             and volume_ratio >= 1.20 and last.close < last.open
             and body >= 0.55 and close_loc <= 0.35
         )
@@ -527,6 +532,7 @@ class SmartStrategy:
             f"momentum={momentum * 100:.3f}%",
             f"book_imbalance={imbalance:.3f}",
             f"flow_delta={flow:+.3f}",
+            f"flow_pressure={pressure_long if side == \"LONG\" else pressure_short:.3f}",
             f"trend5={'UP' if trend > 0 else 'DOWN'}",
             f"trend15={'UP' if trend15 > 0 else 'DOWN' if trend15 < 0 else 'FLAT'}",
             f"atr_pct={atr_pct:.3f}",
