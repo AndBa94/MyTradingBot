@@ -1,6 +1,7 @@
 from math import isfinite
 from statistics import mean, median
 from app.models import Opportunity
+from app.orderflow import analyze_orderflow, directional_pressure
 
 
 def _f(v, default=0.0):
@@ -228,6 +229,9 @@ class TrendExpansionStrategy:
             return None
 
         flow = _flow_delta(previous_orderbook, imbalance)
+        flow_features = analyze_orderflow(orderbook, previous_orderbook, depth=12)
+        pressure_long = directional_pressure(flow_features, "LONG")
+        pressure_short = directional_pressure(flow_features, "SHORT")
         spread_bps = _f(m.spread_bps)
         if spread_bps > 8:
             return None
