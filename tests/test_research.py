@@ -7,8 +7,8 @@ class ResearchTests(unittest.TestCase):
     def test_wilson_interval_matches_wolfram_reference(self):
         lo, hi = wilson_interval(58, 100)
         # Wolfram reference for p=.58, n=100, z=1.95996398454005.
-        self.assertAlmostEqual(lo, 0.4832643101683207, places=12)
-        self.assertAlmostEqual(hi, 0.6767356898316792, places=12)
+        self.assertAlmostEqual(lo, 0.48206486703042983, places=12)
+        self.assertAlmostEqual(hi, 0.6720161732564525, places=12)
 
     def test_small_sample_never_authorizes_optimization(self):
         rows = [{"pnl": 1, "setup": "A", "score_10": 8.5, "reason": "TP"} for _ in range(10)]
