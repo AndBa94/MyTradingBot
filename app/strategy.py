@@ -436,6 +436,9 @@ class SmartStrategy:
         trend, fast, slow = _trend_direction(closes)
         trend15 = _higher_trend(closes)
         flow = _flow_delta(previous_orderbook, imbalance)
+        flow_features = analyze_orderflow(orderbook, previous_orderbook, depth=12)
+        pressure_long = directional_pressure(flow_features, "LONG")
+        pressure_short = directional_pressure(flow_features, "SHORT")
         if atr is None or rsi is None or fast is None:
             return None
 
