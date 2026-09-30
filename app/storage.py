@@ -259,6 +259,10 @@ class Store:
             )
         self.db.commit()
 
+    def research_report(self, minimum_sample=30):
+        from app.research import build_research_report
+        return build_research_report(self.all_history(), minimum_sample=minimum_sample)
+
     def reset(self):
         self.db.execute("DELETE FROM trades")
         self.db.execute("DELETE FROM positions")
