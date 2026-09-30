@@ -73,6 +73,11 @@ async def history():
 async def stats():
     return store.statistics()
 
+@app.get("/api/research")
+async def research(minimum_sample: int = 30):
+    minimum_sample = max(10, min(1000, int(minimum_sample)))
+    return store.research_report(minimum_sample=minimum_sample)
+
 @app.get("/api/self-analysis")
 async def self_analysis():
     return store.statistics().get("self_analysis", {})
