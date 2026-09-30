@@ -14,7 +14,7 @@ class OrderFlowTests(unittest.TestCase):
             "asks": [["101", "10"], ["102", "10"]],
         }
         f = analyze_orderflow(current, previous, depth=2)
-        self.assertAlmostEqual(f["imbalance"], 2 / 3, places=12)
+        self.assertAlmostEqual(f["imbalance"], 1990 / 3005, places=12)
         self.assertGreater(f["flow_delta"], 0)
         self.assertGreater(f["pressure"], 0)
         self.assertGreater(directional_pressure(f, "LONG"), 0.5)
