@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 from app.engine import Engine
 from app.models import MarketSnapshot, Opportunity
-from app.risk import position_size
+from app.risk import position_size, audit_position_size
 from app.storage import Store
 from app.strategy import SmartStrategy
 
@@ -52,6 +52,45 @@ class TradingMathTests(unittest.TestCase):
         q = position_size(100, 0.005, 100, 99, 3, fee_rate=0.00055)
         expected = 0.5 / (1.0 + (100 + 99) * 0.00055)
         self.assertAlmostEqual(q, expected, places=10)
+
+    def test_math_audit_matches_wolfram_reference_case(self):
+        # Wolfram reference: balance=100, risk=0.5%, entry=100000,
+        # stop=99500, fee=0.055%, slippage=0.1%.
+        q = position_size(
+            100.0, 0.005, 100000.0, 99500.0, 3,
+            fee_rate=0.00055, stop_slippage_rate=0.001
+        )
+        self.assertAlmostEqual(q, 0.0007044982211419916, places=14)
+        audit = audit_position_size(
+            100.0, 0.005, 100000.0, 99500.0, 3,
+            fee_rate=0.00055, stop_slippage_rate=0.001, quantity=q
+        )
+        self.assertTrue(audit["pass"])
+        self.assertAlmostEqual(audit["estimated_max_loss"], 0.5, places=10)
+
+    def test_math_audit_rejects_oversized_position(self):
+        audit = audit_position_size(
+            100.0, 0.005, 100000.0, 99500.0, 3,
+            fee_rate=0.00055, stop_slippage_rate=0.001,
+            quantity=0.001
+        )
+        self.assertFalse(audit["pass"])
+        self.assertGreater(audit["estimated_max_loss"], audit["risk_cash"])
+
+    def test_math_audit_second_wolfram_reference_case(self):
+        # Wolfram reference: balance=250, risk=0.5%, entry=50000,
+        # stop=49580, fee=0.055%, slippage=0.1%.
+        q = position_size(
+            250.0, 0.005, 50000.0, 49580.0, 5,
+            fee_rate=0.00055, stop_slippage_rate=0.001
+        )
+        self.assertAlmostEqual(q, 0.0023820004611552893, places=14)
+        audit = audit_position_size(
+            250.0, 0.005, 50000.0, 49580.0, 5,
+            fee_rate=0.00055, stop_slippage_rate=0.001, quantity=q
+        )
+        self.assertTrue(audit["pass"])
+        self.assertAlmostEqual(audit["estimated_max_loss"], 1.25, places=10)
 
     def test_entry_and_exit_balance_matches_realized_pnl_minus_fees(self):
         p = self.engine.open_paper(opportunity())
